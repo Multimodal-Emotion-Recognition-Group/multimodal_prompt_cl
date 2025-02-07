@@ -10,7 +10,7 @@ class CLModel(nn.Module):
         self.dropout = args.dropout
         self.num_classes = n_classes
         self.pad_value = args.pad_value
-        self.mask_value = 50265
+        self.mask_value = 50264
         self.f_context_encoder = AutoModel.from_pretrained(args.bert_path)
         
         num_embeddings, self.dim = self.f_context_encoder.embeddings.word_embeddings.weight.data.shape
@@ -49,8 +49,10 @@ class CLModel(nn.Module):
     def score_func(self, x, y):
         return (1 + F.cosine_similarity(x, y, dim=-1))/2 + self.eps
     
-    def _forward(self, sentences, vis_ids, aud_ids):
+    def _forward(self, sentences, vis_ids, aud_ids, bio_ids):
         mask = 1 - (sentences == (self.pad_value)).long()
+        
+        vis_ids = vis_ids.to(self.device)
         vis_cap = self.f_context_encoder(
             input_ids=vis_ids,
             attention_mask=torch.ones_like(vis_ids).long(),
@@ -58,7 +60,9 @@ class CLModel(nn.Module):
             return_dict=True
         )['last_hidden_state']
         vis_emb = vis_cap[:, 0, :]
+        del vis_cap
 
+        aud_ids = aud_ids.to(self.device)
         aud_cap = self.f_context_encoder(
             input_ids=aud_ids,
             attention_mask=torch.ones_like(aud_ids).long(),
@@ -66,11 +70,25 @@ class CLModel(nn.Module):
             return_dict=True
         )['last_hidden_state']
         aud_emb = aud_cap[:, 0, :]
+        del aud_cap
 
+        bio_ids = bio_ids.to(self.device)
+        bio_cap = self.f_context_encoder(
+            input_ids=bio_ids,
+            attention_mask=torch.ones_like(bio_ids).long(),
+            output_hidden_states=True,
+            return_dict=True
+        )['last_hidden_state']
+        bio_emb = bio_cap[:, 0, :]
+        del bio_cap
+
+        sentences = sentences.to(self.device)
+        mask = mask.to(self.device)
         utterance_embs = self.f_context_encoder.embeddings(sentences)
         utterance_embs[:, 1] = vis_emb
         utterance_embs[:, 2] = aud_emb
-        
+        utterance_embs[:, 3] = bio_emb
+
         utterance_encoded = self.f_context_encoder(
             # input_ids=sentences,
             inputs_embeds=utterance_embs,
@@ -96,11 +114,11 @@ class CLModel(nn.Module):
             anchor_scores = None
         return feature, mask_mapped_outputs, mask_outputs, anchor_scores
     
-    def forward(self, sentences, vis_ids, aud_ids, return_mask_output=False):
+    def forward(self, sentences, vis_ids, aud_ids, bio_ids, return_mask_output=False):
         '''
         generate vector representations for each turn of conversation
         '''
-        feature, mask_mapped_outputs, mask_outputs, anchor_scores = self._forward(sentences, vis_ids, aud_ids)
+        feature, mask_mapped_outputs, mask_outputs, anchor_scores = self._forward(sentences, vis_ids, aud_ids, bio_ids)
         
         if return_mask_output:
             return feature, mask_mapped_outputs, mask_outputs, anchor_scores

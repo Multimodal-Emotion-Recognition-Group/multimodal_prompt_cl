@@ -30,6 +30,7 @@ class DialogueDataset(Dataset):
         self.SEP = _special_tokens_ids[2]
         self.VIS = self.MASK + 1
         self.AUD = self.MASK + 2
+        self.BIO = self.MASK + 3
 
         self.data, self.labels, self.utterance_sequence = self.read(dataset_name, split, tokenizer)
         
@@ -48,7 +49,7 @@ class DialogueDataset(Dataset):
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
-            dialogs = load_meld_turn(f'./data/{dataset_name}/modified_{split}_data.csv')
+            dialogs = load_meld_turn(f'./data/{dataset_name}/modified2_{split}_data.csv')
         print("number of dialogs:", len(dialogs))
 
         data_list = []
@@ -67,13 +68,13 @@ class DialogueDataset(Dataset):
                 utterance_ids.append(token_ids)
                 if turn_data['label'] < 0:
                     continue
-                full_context = [self.CLS, self.VIS, self.AUD, self.SEP]
+                full_context = [self.CLS, self.VIS, self.AUD, self.BIO, self.SEP]
                 lidx = 0
                 for lidx in range(idx):
-                    total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 11 # 8
+                    total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 12 # 8
                     if total_len + len(utterance_ids[idx]) <= self.max_len:
                         break
-                lidx = max(lidx, idx-11) # 8
+                lidx = max(lidx, idx-12) # 8
                 for item in utterance_ids[lidx:]:
                     full_context.extend(item)
                 
@@ -84,7 +85,8 @@ class DialogueDataset(Dataset):
                      turn_data['speaker'], 
                      turn_data['text'], 
                      turn_data['vis_cap'], 
-                     turn_data['audio_cap'])
+                     turn_data['audio_cap'],
+                     turn_data['bio'])
                 )# input_ids, speaker
                 ret_labels.append(dialogue[query_idx]['label'])
 
@@ -99,7 +101,7 @@ class DialogueDataset(Dataset):
         return data_list, label_list, utterance_sequence
 
     def process(self, data):
-        input_ids, speaker, text, vis_cap, aud_cap = data
+        input_ids, speaker, text, vis_cap, aud_cap, bio = data
         # print(input_ids)
         p2 = 'For utterance: '+ text + " " + speaker + " feels <mask> "
         p2 = self.tokenizer(p2)['input_ids'][1:]
@@ -107,6 +109,7 @@ class DialogueDataset(Dataset):
         
         vis_ids = self.tokenizer(vis_cap)['input_ids']
         aud_ids = self.tokenizer(aud_cap)['input_ids']
+        bio_ids = self.tokenizer(bio)['input_ids']
 
         p2 = pad_to_len(p2, self.max_len, self.pad_value)
         p2 = torch.LongTensor(p2)
@@ -114,18 +117,20 @@ class DialogueDataset(Dataset):
         vis_ids = torch.LongTensor(vis_ids)
         aud_ids = pad_to_len(aud_ids, self.max_len, self.pad_value)
         aud_ids = torch.LongTensor(aud_ids)
+        bio_ids = pad_to_len(bio_ids, self.max_len, self.pad_value)
+        bio_ids = torch.LongTensor(bio_ids)
 
-        return p2, vis_ids, aud_ids
+        return p2, vis_ids, aud_ids, bio_ids
 
     def save_path(self, dataset_name):
         return f'./data/{dataset_name}/processed/{self.split}'
 
     def __getitem__(self, index):
         text = self.data[index]
-        text, vis_ids, aud_ids = self.process(text)
+        text, vis_ids, aud_ids, bio_ids = self.process(text)
         label = self.labels[index]
        
-        return text, label, vis_ids, aud_ids
+        return text, label, vis_ids, aud_ids, bio_ids
 
     def __len__(self):
         return len(self.data)
