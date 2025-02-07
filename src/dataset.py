@@ -49,7 +49,7 @@ class DialogueDataset(Dataset):
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
-            dialogs = load_meld_turn(f'./data/{dataset_name}/modified2_{split}_data.csv')
+            dialogs = load_meld_turn(f'./data/{dataset_name}/modified3_{split}_data.csv')
         print("number of dialogs:", len(dialogs))
 
         data_list = []
