@@ -22,9 +22,9 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
     
     for batch_id, batch in enumerate(pbar):
         
-        input_ids, label, vis_ids, aud_ids, bio_ids = batch
+        input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
        
-        input_orig = (input_ids, vis_ids, aud_ids, bio_ids)
+        input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
         input_aug = None
 
         if args.fp16:
@@ -107,16 +107,16 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
 def _forward(model, loss_function, input_orig, input_aug, label, device):
 
     # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
-    input_ids, vis_ids, aud_ids, bio_ids = input_orig
+    input_ids, vis_ids, aud_ids, bio_ids, aus_ids = input_orig
     label = label.to(device)
     mask = torch.ones(len(input_orig[0])).to(device)
     mask = mask > 0.5
     if model.training:
-        log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, return_mask_output=True) 
+        log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
         loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model)
     else:
         with torch.no_grad():
-            log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, return_mask_output=True) 
+            log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
             loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model)
     loss = loss_output.ce_loss * model.args.ce_loss_weight + (1 - model.args.ce_loss_weight) * loss_output.cl_loss
 

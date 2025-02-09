@@ -49,7 +49,7 @@ class CLModel(nn.Module):
     def score_func(self, x, y):
         return (1 + F.cosine_similarity(x, y, dim=-1))/2 + self.eps
     
-    def _forward(self, sentences, vis_ids, aud_ids, bio_ids):
+    def _forward(self, sentences, vis_ids, aud_ids, bio_ids, aus_ids):
         mask = 1 - (sentences == (self.pad_value)).long()
         
         vis_ids = vis_ids.to(self.device)
@@ -82,12 +82,23 @@ class CLModel(nn.Module):
         bio_emb = bio_cap[:, 0, :]
         del bio_cap
 
+        aus_ids = aus_ids.to(self.device)
+        aus_cap = self.f_context_encoder(
+            input_ids=aus_ids,
+            attention_mask=torch.ones_like(aus_ids).long(),
+            output_hidden_states=True,
+            return_dict=True
+        )['last_hidden_state']
+        aus_emb = aus_cap[:, 0, :]
+        del aus_cap
+
         sentences = sentences.to(self.device)
         mask = mask.to(self.device)
         utterance_embs = self.f_context_encoder.embeddings(sentences)
         utterance_embs[:, 1] = vis_emb
         utterance_embs[:, 2] = aud_emb
         utterance_embs[:, 3] = bio_emb
+        utterance_embs[:, 4] = aus_emb
 
         utterance_encoded = self.f_context_encoder(
             # input_ids=sentences,
@@ -114,11 +125,11 @@ class CLModel(nn.Module):
             anchor_scores = None
         return feature, mask_mapped_outputs, mask_outputs, anchor_scores
     
-    def forward(self, sentences, vis_ids, aud_ids, bio_ids, return_mask_output=False):
+    def forward(self, sentences, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=False):
         '''
         generate vector representations for each turn of conversation
         '''
-        feature, mask_mapped_outputs, mask_outputs, anchor_scores = self._forward(sentences, vis_ids, aud_ids, bio_ids)
+        feature, mask_mapped_outputs, mask_outputs, anchor_scores = self._forward(sentences, vis_ids, aud_ids, bio_ids, aus_ids)
         
         if return_mask_output:
             return feature, mask_mapped_outputs, mask_outputs, anchor_scores

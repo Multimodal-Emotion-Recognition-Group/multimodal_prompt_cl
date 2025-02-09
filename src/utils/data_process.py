@@ -109,6 +109,7 @@ def load_meld_turn(file_path):
         turn_data['audio_cap'] = meta['audio_caption']
         turn_data['vis_cap'] = meta['visual_caption']
         turn_data['bio'] = meta['Bio']
+        turn_data['aus'] = meta['aus']
 
         dialogue_id = meta['Dialogue_ID']
         if pre_dial_id == -1:
