@@ -46,7 +46,7 @@ class DialogueDataset(Dataset):
 
     def read(self, dataset_name, split, tokenizer):
         if dataset_name == "IEMOCAP":
-            dialogs = load_iemocap_turn(f'./data/{dataset_name}/{split}_data.json')
+            dialogs = load_iemocap_turn(f'./data/{dataset_name}/modified_{split}_data.json')
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
@@ -69,7 +69,7 @@ class DialogueDataset(Dataset):
                 utterance_ids.append(token_ids)
                 if turn_data['label'] < 0:
                     continue
-                full_context = [self.CLS, self.VIS, self.AUD, self.BIO, self.AUS, self.SEP]
+                full_context = [self.CLS,  self.SEP] # self.VIS, self.AUD, self.BIO, self.AUS,
                 lidx = 0
                 for lidx in range(idx):
                     total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 12 # 8

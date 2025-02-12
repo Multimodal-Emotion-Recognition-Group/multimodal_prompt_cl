@@ -96,9 +96,9 @@ class CLModel(nn.Module):
         mask = mask.to(self.device)
         utterance_embs = self.f_context_encoder.embeddings(sentences)
         utterance_embs[:, 1] = vis_emb
-        utterance_embs[:, 2] = aud_emb
-        utterance_embs[:, 3] = bio_emb
-        utterance_embs[:, 4] = aus_emb
+        utterance_embs[:, 1] = aud_emb
+        utterance_embs[:, 2] = bio_emb
+        utterance_embs[:, 3] = aus_emb
 
         utterance_encoded = self.f_context_encoder(
             # input_ids=sentences,

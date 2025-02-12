@@ -123,6 +123,41 @@ def load_meld_turn(file_path):
 
     return dialogues
 
+# def load_iemocap_turn(file_path):
+#     with open('./data/IEMOCAP/label_vocab.pkl', 'rb') as f:
+#         emotion_vocab = pickle.load(f)
+#     data = pd.read_csv(file_path)
+#     pre_dial_id = -1
+#     dialogues = []
+#     dialogue = []
+#     for row in tqdm(data.iterrows(),
+#                     desc='processing file {}'.format(file_path)):
+#         meta = row[1]
+#         text = meta['text'].replace('’', '\'').replace("\"", '').replace('[LAUGHTER]', '')
+#         speaker = meta['sex']
+#         emotion = meta['emotion'].lower()
+#         emotion_idx = emotion_vocab[emotion]
+#         turn_data = {}
+#         turn_data['speaker'] = speaker
+#         # speaker_vocab.word2index(speaker, train=True)
+#         turn_data['text'] = text
+#         turn_data['label'] = emotion_idx
+#         turn_data['audio_cap'] = meta['audio_caption']
+#         turn_data['vis_cap'] = meta['visual_caption']
+#         turn_data['bio'] = meta['Bio']
+#         turn_data['aus'] = meta['aus']
+
+#         dialogue_id = (meta['session'], meta['fn'])
+#         if pre_dial_id == -1:
+#             pre_dial_id = dialogue_id
+#         if dialogue_id != pre_dial_id:
+#             dialogues.append(dialogue)
+#             dialogue = []
+#         pre_dial_id = dialogue_id
+#         dialogue.append(turn_data)
+#     dialogues.append(dialogue)
+
+#     return dialogues
 def load_iemocap_turn(file_path):
     with open('./data/IEMOCAP/label_vocab.pkl', 'rb') as f:
         emotion_vocab = pickle.load(f)
@@ -145,6 +180,10 @@ def load_iemocap_turn(file_path):
             turn_data['speaker'] = speaker
             turn_data['text'] = text
             turn_data['emotion'] = emotion
+            turn_data['audio_cap'] = utterance.get('audio_caption')
+            turn_data['vis_cap'] = utterance.get('visual_caption')
+            turn_data['bio'] = utterance.get('Bio')
+            turn_data['aus'] = utterance.get('aus')
             if emotion is not None:
                 emotion_idx = emotion_vocab[emotion]
                 count += 1

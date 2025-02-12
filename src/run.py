@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np, argparse, time, pickle, random
 import torch
 import torch.nn as nn
@@ -106,13 +106,13 @@ def get_parser():
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
-    parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size') # 64
+    parser.add_argument('--batch_size', type=int, default=16, metavar='BS', help='batch size') # 64
 
-    parser.add_argument('--epochs', type=int, default=5, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=4, metavar='E', help='number of epochs')
 
     parser.add_argument('--weight_decay', type=float, default=0, help='type of nodal attention')
     ### Environment params
-    parser.add_argument("--fp16", type=bool, default=True)
+    parser.add_argument("--fp16", type=bool, default=False)
     parser.add_argument("--seed", type=int, default=2)
     # parser.add_argument("--ignore_prompt_prefix", action="store_true", default=True)
     parser.add_argument("--disable_training_progress_bar", action="store_true")
@@ -161,6 +161,11 @@ if __name__ == '__main__':
         n_classes = 7
     elif args.dataset_name == "MELD":
         n_classes = 7
+    if args.dataset_name == "IEMOCAP":
+        target_names = ['neu', 'exc', 'fru', 'sad', 'hap', 'ang']
+    else:
+        target_names = ['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise', 'neutral']
+
     trainset = DialogueDataset(args, dataset_name = args.dataset_name, split='train', tokenizer=tokenizer)
     # devset = DialogueDataset(args, dataset_name = args.dataset_name, split='dev', tokenizer=tokenizer)
     testset = DialogueDataset(args, dataset_name = args.dataset_name, split='test', tokenizer=tokenizer)
@@ -210,7 +215,7 @@ if __name__ == '__main__':
             best_model = copy.deepcopy(model)
             best_test_fscore = test_fscore
             torch.save(model.state_dict(), path + args.dataset_name + '/model_' + '.pkl')
-            rep = classification_report(test_label, test_pred, digits=4, target_names=['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise', 'neutral'])
+            rep = classification_report(test_label, test_pred, digits=4, target_names=target_names)
 
     print("Stage 1 summary")
     print(rep)
@@ -316,7 +321,7 @@ if __name__ == '__main__':
                 # pickle.dump((test_label, test_pred), open('with_' * str(args.angle_loss_weight) + 'angle_iemocap.pkl', 'wb'))
                 torch.save(clf.state_dict(), path + args.dataset_name + '/clf_' + '.pkl')
                 f = test_detail_f1
-                rep = classification_report(test_label, test_pred, digits=4, target_names=['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise', 'neutral'])
+                rep = classification_report(test_label, test_pred, digits=4, target_names=target_names)
         
         print('Stage 2 summary')
         print(rep)
