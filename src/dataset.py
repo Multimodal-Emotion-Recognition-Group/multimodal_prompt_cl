@@ -50,7 +50,7 @@ class DialogueDataset(Dataset):
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
-            dialogs = load_meld_turn(f'./data/{dataset_name}/modified4_{split}_data.csv')
+            dialogs = load_meld_turn(f'./data/{dataset_name}/modified5_{split}_data.csv')
         print("number of dialogs:", len(dialogs))
 
         data_list = []
@@ -64,18 +64,18 @@ class DialogueDataset(Dataset):
             utterance_ids = []
             utterance_seq = []
             for idx, turn_data in enumerate(dialogue):
-                text_with_speaker = turn_data['speaker'] + ' says: ' + turn_data['text']
+                text_with_speaker = turn_data['speaker'] + ': ' + turn_data['text']
                 token_ids = tokenizer(text_with_speaker)['input_ids'][1:]
                 utterance_ids.append(token_ids)
                 if turn_data['label'] < 0:
                     continue
-                full_context = [self.CLS,  self.SEP] # self.VIS, self.AUD, self.BIO, self.AUS,
+                full_context = [self.CLS] # self.VIS, self.AUD, self.BIO, self.AUS,
                 lidx = 0
                 for lidx in range(idx):
-                    total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 12 # 8
+                    total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 8
                     if total_len + len(utterance_ids[idx]) <= self.max_len:
                         break
-                lidx = max(lidx, idx-12) # 8
+                lidx = max(lidx, idx-8)
                 for item in utterance_ids[lidx:]:
                     full_context.extend(item)
                 
@@ -85,10 +85,7 @@ class DialogueDataset(Dataset):
                     (input_ids, 
                      turn_data['speaker'], 
                      turn_data['text'], 
-                     turn_data['vis_cap'], 
-                     turn_data['audio_cap'],
-                     turn_data['bio'],
-                     turn_data['aus'])
+                     turn_data['md'])
                 )# input_ids, speaker
                 ret_labels.append(dialogue[query_idx]['label'])
 
@@ -103,39 +100,29 @@ class DialogueDataset(Dataset):
         return data_list, label_list, utterance_sequence
 
     def process(self, data):
-        input_ids, speaker, text, vis_cap, aud_cap, bio, aus = data
+        input_ids, speaker, text, md = data
         # print(input_ids)
-        p2 = 'For utterance: '+ text + " " + speaker + " feels <mask> "
+        p2 = speaker + ": " + text
         p2 = self.tokenizer(p2)['input_ids'][1:]
-        p2 = input_ids + p2
+        # p2 = input_ids + p2
+        md_ids = self.tokenizer(md)['input_ids'][1:-1]
+        md_ids = md_ids[:(self.max_len - len(p2) - 1)]
         
-        vis_ids = self.tokenizer(vis_cap)['input_ids']
-        aud_ids = self.tokenizer(aud_cap)['input_ids']
-        bio_ids = self.tokenizer(bio)['input_ids']
-        aus_ids = self.tokenizer(aus)['input_ids']
+        p2 = md_ids + [self.SEP] + p2
 
         p2 = pad_to_len(p2, self.max_len, self.pad_value)
         p2 = torch.LongTensor(p2)
-        vis_ids = pad_to_len(vis_ids, self.max_len, self.pad_value)
-        vis_ids = torch.LongTensor(vis_ids)
-        aud_ids = pad_to_len(aud_ids, self.max_len, self.pad_value)
-        aud_ids = torch.LongTensor(aud_ids)
-        bio_ids = pad_to_len(bio_ids, self.max_len, self.pad_value)
-        bio_ids = torch.LongTensor(bio_ids)
-        aus_ids = pad_to_len(aus_ids, self.max_len, self.pad_value)
-        aus_ids = torch.LongTensor(aus_ids)
 
-        return p2, vis_ids, aud_ids, bio_ids, aus_ids
+        return p2
 
     def save_path(self, dataset_name):
         return f'./data/{dataset_name}/processed/{self.split}'
 
     def __getitem__(self, index):
         text = self.data[index]
-        text, vis_ids, aud_ids, bio_ids, aus_ids = self.process(text)
+        text = self.process(text)
         label = self.labels[index]
        
-        return text, label, vis_ids, aud_ids, bio_ids, aus_ids
-
+        return text, label
     def __len__(self):
         return len(self.data)

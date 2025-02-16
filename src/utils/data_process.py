@@ -106,10 +106,7 @@ def load_meld_turn(file_path):
         speaker_vocab.word2index(speaker, train=True)
         turn_data['text'] = text
         turn_data['label'] = emotion_idx
-        turn_data['audio_cap'] = meta['audio_caption']
-        turn_data['vis_cap'] = meta['visual_caption']
-        turn_data['bio'] = meta['Bio']
-        turn_data['aus'] = meta['aus']
+        turn_data['md'] = meta['Multimodal']
 
         dialogue_id = meta['Dialogue_ID']
         if pre_dial_id == -1:

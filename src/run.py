@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import numpy as np, argparse, time, pickle, random
 import torch
 import torch.nn as nn
@@ -81,7 +81,7 @@ def get_paramsgroup(model, warmup=False):
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bert_path', type=str, default='princeton-nlp/sup-simcse-roberta-large')
+    parser.add_argument('--bert_path', type=str, default='princeton-nlp/sup-simcse-roberta-base')
     parser.add_argument('--bert_dim', type = int, default=1024)
     parser.add_argument('--emb_dim', type=int, default=1024, help='Feature size.')
     parser.add_argument('--pad_value', type=int, default=1, help='padding')
@@ -106,13 +106,13 @@ def get_parser():
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
-    parser.add_argument('--batch_size', type=int, default=16, metavar='BS', help='batch size') # 64
+    parser.add_argument('--batch_size', type=int, default=64, metavar='BS', help='batch size') # 64
 
-    parser.add_argument('--epochs', type=int, default=4, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=8, metavar='E', help='number of epochs')
 
     parser.add_argument('--weight_decay', type=float, default=0, help='type of nodal attention')
     ### Environment params
-    parser.add_argument("--fp16", type=bool, default=False)
+    parser.add_argument("--fp16", type=bool, default=True)
     parser.add_argument("--seed", type=int, default=2)
     # parser.add_argument("--ignore_prompt_prefix", action="store_true", default=True)
     parser.add_argument("--disable_training_progress_bar", action="store_true")
@@ -243,49 +243,49 @@ if __name__ == '__main__':
             emb_train, emb_val, emb_test = [] ,[] ,[]
             label_train, label_val, label_test = [], [], []
             for batch_id, batch in enumerate(train_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+                input_ids, label = batch
        
-                input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
+                input_orig = input_ids
                 input_aug = None
                 # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
                 label = label.to(device)
                 if args.fp16:
                     with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
-                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
+                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True) 
                 else:
-                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
+                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True)
                 emb_train.append(masked_mapped_output.detach().cpu())
                 label_train.append(label.cpu())
             emb_train = torch.cat(emb_train, dim=0)
             label_train = torch.cat(label_train, dim=0)
             for batch_id, batch in enumerate(valid_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+                input_ids, label = batch
        
-                input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
+                input_orig = input_ids
                 input_aug = None
                 # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
                 label = label.to(device)
                 if args.fp16:
                     with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
-                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
+                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True)
                 else:
-                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
+                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True) 
                 emb_val.append(masked_mapped_output.detach().cpu())
                 label_val.append(label.cpu())
             emb_val = torch.tensor([]) #torch.cat(emb_val, dim=0)
             label_val = torch.tensor([]) #torch.cat(label_val, dim=0)
             for batch_id, batch in enumerate(test_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+                input_ids, label = batch
        
-                input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
+                input_orig = input_ids
                 input_aug = None
                 # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
                 label = label.to(device)
                 if args.fp16:
                     with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
-                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
+                        log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True) 
                 else:
-                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
+                    log_prob, masked_mapped_output, masked_outputs, anchor_scores = model(input_ids, return_mask_output=True)
                 emb_test.append(masked_mapped_output.detach().cpu())
                 label_test.append(label.cpu())
             emb_test = torch.cat(emb_test, dim=0)
