@@ -2,6 +2,8 @@ from config import *
 from sklearn.metrics.pairwise import cosine_similarity
 from dataclasses import dataclass
 import torch
+# import numpy as np
+import random
 import torch.nn as nn
 import torch.nn.functional as F
 @dataclass
@@ -13,12 +15,14 @@ class HybridLossOutput:
     sentiment_anchortypes:torch.Tensor = None
     anchortype_labels:torch.Tensor = None
     max_cosine:torch.Tensor = None
+    triplet_loss:torch.Tensor = None
 
 def loss_function(log_prob, reps, label, mask, model):
     ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-1).to(reps.device)
     scl_loss_fn = SupConLoss(model.args)
     cl_loss = scl_loss_fn(reps, label, model, return_representations=not model.training)
     ce_loss = ce_loss_fn(log_prob[mask], label[mask])
+    triplet_loss = triplet_loss_fn(reps, label, model, model.args)
     return HybridLossOutput(
         ce_loss=ce_loss,
         cl_loss=cl_loss.loss,
@@ -26,8 +30,27 @@ def loss_function(log_prob, reps, label, mask, model):
         sentiment_labels=cl_loss.sentiment_labels,
         sentiment_anchortypes=cl_loss.sentiment_anchortypes,
         anchortype_labels=cl_loss.anchortype_labels,
-        max_cosine = cl_loss.max_cosine
+        max_cosine = cl_loss.max_cosine,
+        triplet_loss = triplet_loss
     ) 
+
+def triplet_loss_fn(reps, label, model, args):
+    loss_fn = nn.TripletMarginLoss(margin=25) # 0.5
+    if args.dataset_name == 'MELD':
+        emo_anchor = torch.load(f"{args.anchor_path}/meld_emo.pt")
+        n_classes = 7
+    elif args.dataset_name == 'IEMOCAP':
+        emo_anchor = torch.load(f"{args.anchor_path}/iemocap_emo.pt")
+        n_classes = 6
+
+    emo_anchor = emo_anchor.to(reps.device)
+    emo_anchor = model.map_function(emo_anchor)
+    positive = emo_anchor[label]
+    neg_sampling = [random.choice([x for x in range(n_classes) if x != l]) for l in label]
+    negative = emo_anchor[neg_sampling]
+    loss = loss_fn(reps, positive, negative)
+
+    return loss
 
 def AngleLoss(means):
     g_mean = means.mean(dim=0)

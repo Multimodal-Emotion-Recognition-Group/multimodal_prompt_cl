@@ -118,7 +118,7 @@ def _forward(model, loss_function, input_orig, input_aug, label, device):
         with torch.no_grad():
             log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
             loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model)
-    loss = loss_output.ce_loss * model.args.ce_loss_weight + (1 - model.args.ce_loss_weight) * loss_output.cl_loss
+    loss = loss_output.ce_loss * model.args.ce_loss_weight + (1 - model.args.ce_loss_weight) * (0.25*loss_output.cl_loss + 0.75*loss_output.triplet_loss)
 
     return loss, loss_output, log_prob, label[mask], mask, anchor_scores
 
