@@ -6,7 +6,8 @@
 
 ## Launch
 1. `python src/generate_anchors.py --bert_path <model_path>` - generate emotion anchors (there are already generated anchors for RoBERTa-large)
-2. `python src/run.py --anchor_path "./emo_anchors/sup-simcse-roberta-large" --use_nearest_neighbour`
+2. `torchrun --nproc_per_node=N_GPU ./src/run.py --epochs 10 --batch_size 16 --dataset_name MELD --anchor_path ./emo_anchors/sup-simcse-roberta-large --use_nearest_neighbour`
+
 ## Experiments
 - `--max_len` set 512 (default value is 256)
 - Try to train with batch_size=64 in fp32

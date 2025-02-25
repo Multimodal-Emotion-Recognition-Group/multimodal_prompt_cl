@@ -4,20 +4,26 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 @dataclass
 class HybridLossOutput:
-    ce_loss:torch.Tensor = None
-    cl_loss:torch.Tensor = None
-    sentiment_representations:torch.Tensor = None
-    sentiment_labels:torch.Tensor = None
-    sentiment_anchortypes:torch.Tensor = None
-    anchortype_labels:torch.Tensor = None
-    max_cosine:torch.Tensor = None
+    ce_loss: torch.Tensor = None
+    cl_loss: torch.Tensor = None
+    sentiment_representations: torch.Tensor = None
+    sentiment_labels: torch.Tensor = None
+    sentiment_anchortypes: torch.Tensor = None
+    anchortype_labels: torch.Tensor = None
+    max_cosine: torch.Tensor = None
 
-def loss_function(log_prob, reps, label, mask, model):
+
+def loss_function(log_prob, reps, label, mask, model, args):
+    if hasattr(model, 'module'):
+        model = model.module
+
     ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-1).to(reps.device)
-    scl_loss_fn = SupConLoss(model.args)
-    cl_loss = scl_loss_fn(reps, label, model, return_representations=not model.training)
+    scl_loss_fn = SupConLoss(args)
+    cl_loss = scl_loss_fn(reps, label, model,
+                          return_representations=not model.training)
     ce_loss = ce_loss_fn(log_prob[mask], label[mask])
     return HybridLossOutput(
         ce_loss=ce_loss,
@@ -26,8 +32,9 @@ def loss_function(log_prob, reps, label, mask, model):
         sentiment_labels=cl_loss.sentiment_labels,
         sentiment_anchortypes=cl_loss.sentiment_anchortypes,
         anchortype_labels=cl_loss.anchortype_labels,
-        max_cosine = cl_loss.max_cosine
-    ) 
+        max_cosine=cl_loss.max_cosine
+    )
+
 
 def AngleLoss(means):
     g_mean = means.mean(dim=0)
@@ -40,14 +47,15 @@ def AngleLoss(means):
 
     return loss, max_cosine
 
+
 @dataclass
 class SupConOutput:
-    loss:torch.Tensor = None
-    sentiment_representations:torch.Tensor = None
-    sentiment_labels:torch.Tensor = None
-    sentiment_anchortypes:torch.Tensor = None
-    anchortype_labels:torch.Tensor = None
-    max_cosine:torch.Tensor = None
+    loss: torch.Tensor = None
+    sentiment_representations: torch.Tensor = None
+    sentiment_labels: torch.Tensor = None
+    sentiment_anchortypes: torch.Tensor = None
+    anchortype_labels: torch.Tensor = None
+    max_cosine: torch.Tensor = None
 
 
 class SupConLoss(nn.Module):
@@ -66,9 +74,10 @@ class SupConLoss(nn.Module):
             self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
         self.sim = nn.functional.cosine_similarity(self.emo_anchor.unsqueeze(1), self.emo_anchor.unsqueeze(0), dim=2)
         self.args = args
+
     def score_func(self, x, y):
-        return (1 + F.cosine_similarity(x, y, dim=-1))/2 + self.eps
-    
+        return (1 + F.cosine_similarity(x, y, dim=-1)) / 2 + self.eps
+
     def forward(self, reps, labels, model, return_representations=False):
         device = reps.device
         batch_size = reps.shape[0]
@@ -99,12 +108,12 @@ class SupConLoss(nn.Module):
         rep2 = concated_reps.unsqueeze(1).expand(concated_bsz, concated_bsz, concated_reps.shape[-1])
         scores = self.score_func(rep1, rep2)
         scores *= 1 - torch.eye(concated_bsz).to(scores.device)
-        
+
         scores /= self.temperature
         scores = scores[:concated_bsz]
         pos_mask = pos_mask[:concated_bsz]
         mask = mask[:concated_bsz]
-        
+
         scores -= torch.max(scores).item()
 
         angleloss, max_cosine = AngleLoss(emo_anchor)
@@ -113,7 +122,7 @@ class SupConLoss(nn.Module):
         scores = torch.exp(scores)
         pos_scores = scores * (pos_mask * mask)
         neg_scores = scores * (1 - pos_mask)
-        probs = pos_scores.sum(-1)/(pos_scores.sum(-1) + neg_scores.sum(-1))
+        probs = pos_scores.sum(-1) / (pos_scores.sum(-1) + neg_scores.sum(-1))
         probs /= (pos_mask * mask).sum(-1) + self.eps
         loss = - torch.log(probs + self.eps)
         loss_mask = (loss > 0.0).long()
@@ -126,6 +135,5 @@ class SupConLoss(nn.Module):
             sentiment_labels=sentiment_labels,
             sentiment_anchortypes=sentiment_anchortypes,
             anchortype_labels=self.emo_label,
-            max_cosine = max_cosine
+            max_cosine=max_cosine
         )
-    

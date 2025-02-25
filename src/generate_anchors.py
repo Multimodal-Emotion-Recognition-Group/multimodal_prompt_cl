@@ -11,7 +11,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "1"
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bert_path', type=str, default='princeton-nlp/sup-simcse-roberta-large')
+    parser.add_argument('--bert_path', type=str, default='princeton-nlp/sup-simcse-roberta-large') # princeton-nlp/sup-simcse-roberta-base
     args = parser.parse_args()
     return args
 

@@ -6,7 +6,9 @@ from torch import nn as nn
 from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
 
-def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, optimizer=None, lr_scheduler=None, train=False):
+
+def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, optimizer=None, lr_scheduler=None,
+                        train=False):
     losses, preds, labels = [], [], []
     sentiment_representations, sentiment_labels = [], []
 
@@ -19,24 +21,26 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
         pbar = dataloader
     else:
         pbar = tqdm(dataloader)
-    
+
     for batch_id, batch in enumerate(pbar):
-        
+
         input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
-       
+
         input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
         input_aug = None
 
         if args.fp16:
             with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
-                loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig, input_aug, label, device)
+                loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
+                                                                                   input_aug, label, device, args)
         else:
-            loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig, input_aug, label, device)
+            loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
+                                                                               input_aug, label, device, args)
 
         if args.use_nearest_neighbour:
             pred = torch.argmax(anchor_scores[mask], dim=-1)
         else:
-            pred = torch.argmax(log_prob[mask], dim = -1)
+            pred = torch.argmax(log_prob[mask], dim=-1)
 
         preds.append(pred)
         labels.append(label)
@@ -54,13 +58,13 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
     if len(preds) != 0:
         new_preds = []
         new_labels = []
-        for i,label in enumerate(labels):
-            for j,l in enumerate(label):
+        for i, label in enumerate(labels):
+            for j, l in enumerate(label):
                 if l != -1:
                     new_labels.append(l.cpu().item())
                     new_preds.append(preds[i][j].cpu().item())
     else:
-        return float('nan'), float('nan'), [], [], float('nan'), [], []#, [], [], []
+        return float('nan'), float('nan'), [], [], float('nan'), [], []  # , [], [], []
 
     avg_loss = round(np.sum(losses) / len(losses), 4)
     avg_accuracy = round(accuracy_score(new_labels, new_preds) * 100, 2)
@@ -104,27 +108,29 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
     return avg_loss, avg_accuracy, ret_labels, ret_preds, avg_fscore, f1_scores, max_cosine
 
 
-def _forward(model, loss_function, input_orig, input_aug, label, device):
-
+def _forward(model, loss_function, input_orig, input_aug, label, device, args):
     # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
     input_ids, vis_ids, aud_ids, bio_ids, aus_ids = input_orig
     label = label.to(device)
     mask = torch.ones(len(input_orig[0])).to(device)
     mask = mask > 0.5
     if model.training:
-        log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
-        loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model)
+        log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
+                                                                 return_mask_output=True)
+        loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model, args)
     else:
         with torch.no_grad():
-            log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True) 
-            loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model)
-    loss = loss_output.ce_loss * model.args.ce_loss_weight + (1 - model.args.ce_loss_weight) * loss_output.cl_loss
+            log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
+                                                                     return_mask_output=True)
+            loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model, args)
+    loss = loss_output.ce_loss * args.ce_loss_weight + (1 - args.ce_loss_weight) * loss_output.cl_loss
 
     return loss, loss_output, log_prob, label[mask], mask, anchor_scores
 
+
 def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=None, lr_scheduler=None, train=False):
-    losses, ce_losses, preds, labels = [], [], [], []#, []
-    
+    losses, ce_losses, preds, labels = [], [], [], []  # , []
+
     for batch in dataloader:
         data, label = batch
         data = data.to(device)
@@ -132,11 +138,11 @@ def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=Non
         if args.fp16:
             with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
                 log_prob = model(data)
-        else: 
+        else:
             log_prob = model(data)
         loss = loss_function(log_prob, label)
         losses.append(loss.item())
-        pred = torch.argmax(log_prob, dim = -1)
+        pred = torch.argmax(log_prob, dim=-1)
         preds.append(pred)
         labels.append(label)
         if train:
@@ -147,13 +153,13 @@ def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=Non
     if len(preds) != 0:
         new_preds = []
         new_labels = []
-        for i,label in enumerate(labels):
-            for j,l in enumerate(label):
+        for i, label in enumerate(labels):
+            for j, l in enumerate(label):
                 if l != -1:
                     new_labels.append(l.cpu().item())
                     new_preds.append(preds[i][j].cpu().item())
     else:
-        return float('nan'), float('nan'), [], [], float('nan'), [], [] #, [], [], []
+        return float('nan'), float('nan'), [], [], float('nan'), [], []  # , [], [], []
         # plot_representations(sentiment_representations, sentiment_labels, sentiment_anchortypes, anchortype_labels)
     avg_loss = round(np.sum(losses) / len(losses), 4)
     avg_ce_loss = round(np.sum(ce_losses) / len(ce_losses), 4)
@@ -164,7 +170,7 @@ def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=Non
 
     ret_preds = new_preds
     ret_labels = new_labels
-    
+
     new_labels = np.array(new_labels)
     new_preds = np.array(new_preds)
 
