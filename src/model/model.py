@@ -11,12 +11,12 @@ class CLModel(nn.Module):
         self.num_classes = n_classes
         self.pad_value = args.pad_value
         self.mask_value = 50264
-        self.f_context_encoder = AutoModel.from_pretrained(args.bert_path)
+        self.f_context_encoder = nn.DataParallel(AutoModel.from_pretrained(args.bert_path))
         
-        num_embeddings, self.dim = self.f_context_encoder.embeddings.word_embeddings.weight.data.shape
+        num_embeddings, self.dim = self.f_context_encoder.module.embeddings.word_embeddings.weight.data.shape
         self.avg_dist = []
 
-        self.f_context_encoder.resize_token_embeddings(num_embeddings + 256)
+        self.f_context_encoder.module.resize_token_embeddings(num_embeddings + 256)
         self.eps = 1e-8
         self.device = "cuda" if self.args.cuda else "cpu"
         self.predictor = nn.Sequential(
@@ -94,7 +94,7 @@ class CLModel(nn.Module):
 
         sentences = sentences.to(self.device)
         mask = mask.to(self.device)
-        utterance_embs = self.f_context_encoder.embeddings(sentences)
+        utterance_embs = self.f_context_encoder.module.embeddings(sentences)
         utterance_embs[:, 1] = vis_emb
         utterance_embs[:, 1] = aud_emb
         utterance_embs[:, 2] = bio_emb
