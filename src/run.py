@@ -106,13 +106,13 @@ def get_parser():
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
-    parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size') # 64
+    parser.add_argument('--batch_size', type=int, default=16, metavar='BS', help='batch size') # 64
 
     parser.add_argument('--epochs', type=int, default=8, metavar='E', help='number of epochs')
 
     parser.add_argument('--weight_decay', type=float, default=0, help='type of nodal attention')
     ### Environment params
-    parser.add_argument("--fp16", type=bool, default=True)
+    parser.add_argument("--fp16", type=bool, default=False)
     parser.add_argument("--seed", type=int, default=2)
     # parser.add_argument("--ignore_prompt_prefix", action="store_true", default=True)
     parser.add_argument("--disable_training_progress_bar", action="store_true")
