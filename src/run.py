@@ -300,9 +300,9 @@ if __name__ == '__main__':
         train_loader = DataLoader(trainset, batch_size=64, shuffle=False, pin_memory=True, sampler=sampler, num_workers=8)
         valid_loader = DataLoader(validset, batch_size=64, shuffle=False, num_workers=8)
         test_loader = DataLoader(testset, batch_size=64, shuffle=False, num_workers=8)
-        if args.save_stage_two_cache:
-            os.makedirs("cache", exist_ok=True)
-            pickle.dump([train_loader, valid_loader, test_loader, anchors], open(f"./cache/{args.dataset_name}.pkl", 'wb'))
+        # if args.save_stage_two_cache:
+        #     os.makedirs("cache", exist_ok=True)
+        #     pickle.dump([train_loader, valid_loader, test_loader, anchors], open(f"./cache/{args.dataset_name}.pkl", 'wb'))
         clf = Classifier(args, anchors).to(device)
         optimizer = torch.optim.Adam(clf.parameters(), lr=args.stage_two_lr, weight_decay=args.weight_decay)
         best_valid_score = 0
