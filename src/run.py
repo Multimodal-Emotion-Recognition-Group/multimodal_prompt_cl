@@ -1,16 +1,19 @@
 import os
-import numpy as np
-import argparse
 import time
 import random
 import logging
-import warnings
+import argparse
 
+import numpy as np
+from tqdm import tqdm
+
+import warnings
 warnings.filterwarnings("ignore")
 
 import torch
 import torch.nn as nn
 import torch.distributed as dist
+import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
 from transformers import AutoTokenizer
@@ -143,6 +146,7 @@ def get_parser():
 
 
 def main(args):
+    mp.set_start_method("spawn", force=True) 
     dist.init_process_group(backend='nccl')
 
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -201,7 +205,7 @@ def main(args):
     model = CLModel(args, n_classes, tokenizer)
     model.to(device)
 
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
 
     optimizer = AdamW(get_paramsgroup(model.module if hasattr(model, 'module') else model, args))
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5, last_epoch=-1)
@@ -211,24 +215,43 @@ def main(args):
 
     for e in range(args.epochs):
         train_sampler.set_epoch(e)
-
+    
         start_time = time.time()
-
+    
         # train
-        train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
-            train_or_eval_model(model, loss_function, train_loader, e, device, args,
-                                optimizer, lr_scheduler, train=True)
-        lr_scheduler.step()
+        # train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
+        #     train_or_eval_model(model, loss_function, train_loader, e, device, args,
+        #                         optimizer, lr_scheduler, train=True)
+        # lr_scheduler.step()
+        train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
 
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \
             train_or_eval_model(model, loss_function, valid_loader, e, device, args, train=False)
-
+    
         # test
         test_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1, _ = \
             train_or_eval_model(model, loss_function, test_loader, e, device, args, train=False)
-
+    
+        world_size = dist.get_world_size()
+        all_test_labels = [None for _ in range(world_size)]
+        all_test_preds = [None for _ in range(world_size)]
+        local_labels = test_label.tolist() if isinstance(test_label, torch.Tensor) else test_label
+        local_preds = test_pred.tolist() if isinstance(test_pred, torch.Tensor) else test_pred
+    
+        dist.all_gather_object(all_test_labels, local_labels)
+        dist.all_gather_object(all_test_preds, local_preds)
+        
         if rank == 0:
+            full_test_labels = []
+            full_test_preds = []
+            for sublist in all_test_labels:
+                full_test_labels.extend(sublist)
+            for sublist in all_test_preds:
+                full_test_preds.extend(sublist)
+    
+            rep = classification_report(full_test_labels, full_test_preds, digits=4, target_names=target_names)
+    
             logger.info(
                 f'Epoch: {e + 1}, '
                 f'train_loss: {train_loss:.4f}, train_acc: {train_acc:.4f}, train_fscore: {train_fscore:.4f}, '
@@ -236,140 +259,168 @@ def main(args):
                 f'test_loss: {test_loss:.4f}, test_acc: {test_acc:.4f}, test_fscore: {test_fscore:.4f}, '
                 f'time: {round(time.time() - start_time, 2)} sec'
             )
-
+    
             if test_fscore > best_test_fscore:
                 best_test_fscore = test_fscore
                 best_model = copy.deepcopy(model)
                 torch.save(model.module.state_dict(),
                            os.path.join(args.save_path, args.dataset_name, 'model_.pkl'))
-                rep = classification_report(test_label, test_pred, digits=4, target_names=target_names)
 
     if rank == 0:
         print("Stage 1 summary")
         print(rep)
         logger.info('Finish stage 1 training!')
 
-    if not args.disable_two_stage_training:
-        dist.barrier()
-
-        best_model.module.load_state_dict(
-            torch.load(os.path.join(args.save_path, args.dataset_name, 'model_.pkl'),
-                       map_location=device)
-        )
-
-        best_model.eval()
-
-        with torch.no_grad():
-            emb_train, label_train = [], []
-            for batch_id, batch in enumerate(train_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
-                label = label.to(device)
-
-                log_prob, masked_mapped_output, _, anchor_scores = \
-                    best_model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
-
-                emb_train.append(masked_mapped_output.detach().cpu())
-                label_train.append(label.cpu())
-
-            emb_train = torch.cat(emb_train, dim=0)
-            label_train = torch.cat(label_train, dim=0)
-
-            emb_val, label_val = [], []
-            for batch_id, batch in enumerate(valid_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
-                label = label.to(device)
-                log_prob, masked_mapped_output, _, anchor_scores = \
-                    best_model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
-
-                emb_val.append(masked_mapped_output.detach().cpu())
-                label_val.append(label.cpu())
-
-            if len(emb_val) > 0:
-                emb_val = torch.cat(emb_val, dim=0)
-                label_val = torch.cat(label_val, dim=0)
-            else:
-                emb_val = torch.tensor([])
-                label_val = torch.tensor([])
-
-            emb_test, label_test = [], []
-            for batch_id, batch in enumerate(test_loader):
-                input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
-                label = label.to(device)
-                log_prob, masked_mapped_output, _, anchor_scores = \
-                    best_model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids, return_mask_output=True)
-
-                emb_test.append(masked_mapped_output.detach().cpu())
-                label_test.append(label.cpu())
-
-            emb_test = torch.cat(emb_test, dim=0)
-            label_test = torch.cat(label_test, dim=0)
-
-        if rank == 0:
-            print("Embedding dataset built")
-
-        trainset_emb = TensorDataset(emb_train, label_train)
-        validset_emb = TensorDataset(emb_val, label_val)
-        testset_emb = TensorDataset(emb_test, label_test)
-
-        train_sampler_emb = DistributedSampler(trainset_emb, shuffle=True)
-        valid_sampler_emb = DistributedSampler(validset_emb, shuffle=False)
-        test_sampler_emb = DistributedSampler(testset_emb, shuffle=False)
-
-        train_loader_emb = DataLoader(trainset_emb, batch_size=64, sampler=train_sampler_emb,
-                                      pin_memory=True, num_workers=4)
-        valid_loader_emb = DataLoader(validset_emb, batch_size=64, sampler=valid_sampler_emb,
-                                      pin_memory=True, num_workers=4)
-        test_loader_emb = DataLoader(testset_emb, batch_size=64, sampler=test_sampler_emb,
-                                     pin_memory=True, num_workers=4)
-
-        if args.save_stage_two_cache and rank == 0:
-            import pickle
-            os.makedirs("cache", exist_ok=True)
-            anchors = best_model.module.map_function(best_model.module.emo_anchor)
-            with open(f"./cache/{args.dataset_name}.pkl", 'wb') as f:
-                pickle.dump([train_loader_emb, valid_loader_emb, test_loader_emb, anchors], f)
-
-        dist.barrier()
-        if rank == 0:
-            anchors = best_model.module.map_function(best_model.module.emo_anchor)
-            clf = Classifier(args, anchors).to(device)
-            optimizer2 = torch.optim.Adam(clf.parameters(), lr=args.stage_two_lr, weight_decay=args.weight_decay)
-
-            best_valid_score = 0.0
-            rep_stage2 = None
-
-            for e in range(10):
-                train_loss, train_ce_loss, train_acc, _, _, train_fscore, train_detail_f1 = \
-                    retrain(clf, nn.CrossEntropyLoss(ignore_index=-1).to(device),
-                            train_loader_emb, e, device, args, optimizer2, train=True)
-
-                valid_loss, valid_ce_loss, valid_acc, _, _, valid_fscore, valid_detail_f1 = \
-                    retrain(clf, nn.CrossEntropyLoss(ignore_index=-1).to(device),
-                            valid_loader_emb, e, device, args, optimizer2, train=False)
-
-                test_loss, test_ce_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1 = \
-                    retrain(clf, nn.CrossEntropyLoss(ignore_index=-1).to(device),
-                            test_loader_emb, e, device, args, optimizer2, train=False)
-
-                logger.info(
-                    f"Stage2 Epoch: {e + 1}, "
-                    f"train_loss: {train_loss:.4f}, train_ce_loss: {train_ce_loss:.4f}, "
-                    f"train_acc: {train_acc:.4f}, train_fscore: {train_fscore:.4f}, "
-                    f"valid_loss: {valid_loss:.4f}, valid_acc: {valid_acc:.4f}, valid_fscore: {valid_fscore:.4f}, "
-                    f"test_loss: {test_loss:.4f}, test_ce_loss: {test_ce_loss:.4f}, "
-                    f"test_acc: {test_acc:.4f}, test_fscore: {test_fscore:.4f}"
-                )
-
-                if test_fscore > best_valid_score:
-                    best_valid_score = test_fscore
-                    torch.save(clf.state_dict(),
-                               os.path.join(args.save_path, args.dataset_name, 'clf_.pkl'))
-                    rep_stage2 = classification_report(test_label, test_pred, digits=4, target_names=target_names)
-
-            print('Stage 2 summary')
-            if rep_stage2:
-                print(rep_stage2)
-        dist.barrier()
+    # if not args.disable_two_stage_training:
+    #     print(f"Rank {rank}: Entering initial barrier before stage2", flush=True)
+    #     dist.barrier()
+    #     print(f"Rank {rank}: Exited initial barrier before stage2", flush=True)
+    
+    #     best_model.module.load_state_dict(
+    #         torch.load(
+    #             os.path.join(args.save_path, args.dataset_name, 'model_.pkl'),
+    #             map_location=device
+    #         )
+    #     )
+    #     best_model.eval()
+    
+    #     with torch.no_grad():
+    #         emb_train, label_train = [], []
+    #         print(f"Rank {rank}: Starting to enumerate train_loader...", flush=True)
+    #         total_train_batches = 0
+    #         for batch_id, batch in enumerate(train_loader):
+    #             total_train_batches += 1
+    #             # print(f"Rank {rank}: train batch_id={batch_id}", flush=True)
+    #             input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+    #             label = label.to(device)
+    #             log_prob, masked_mapped_output, _, anchor_scores = best_model(
+    #                 input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
+    #                 return_mask_output=True
+    #             )
+    #             emb_train.append(masked_mapped_output.detach().cpu())
+    #             label_train.append(label.cpu())
+    #         print(f"Rank {rank}: Done enumerating train_loader with {total_train_batches} batches", flush=True)
+    
+    #         if len(emb_train) > 0:
+    #             emb_train = torch.cat(emb_train, dim=0)
+    #             label_train = torch.cat(label_train, dim=0)
+    #         else:
+    #             print(f"Rank {rank}: train_loader was empty -> creating dummy data", flush=True)
+    #             emb_train = torch.zeros((1, 768))
+    #             label_train = torch.zeros((1,), dtype=torch.long)
+    
+    #         emb_test, label_test = [], []
+    #         print(f"Rank {rank}: Starting to enumerate test_loader...", flush=True)
+    #         total_test_batches = 0
+    #         for batch_id, batch in enumerate(test_loader):
+    #             total_test_batches += 1
+    #             # print(f"Rank {rank}: test batch_id={batch_id}", flush=True)
+    #             input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+    #             label = label.to(device)
+    #             log_prob, masked_mapped_output, _, anchor_scores = best_model(
+    #                 input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
+    #                 return_mask_output=True
+    #             )
+    #             emb_test.append(masked_mapped_output.detach().cpu())
+    #             label_test.append(label.cpu())
+    #         print(f"Rank {rank}: Done enumerating test_loader with {total_test_batches} batches", flush=True)
+    
+    #         if len(emb_test) > 0:
+    #             emb_test = torch.cat(emb_test, dim=0)
+    #             label_test = torch.cat(label_test, dim=0)
+    #         else:
+    #             print(f"Rank {rank}: test_loader was empty -> creating dummy data", flush=True)
+    #             emb_test = torch.zeros((1, 768))
+    #             label_test = torch.zeros((1,), dtype=torch.long)
+    
+    #     print(f"Rank {rank}: Finished computing embeddings (train={emb_train.size()}, test={emb_test.size()})", flush=True)
+    
+    #     print(f"Rank {rank}: Creating embedding TensorDatasets", flush=True)
+    #     trainset_emb = TensorDataset(emb_train, label_train)
+    #     testset_emb  = TensorDataset(emb_test, label_test)
+    #     print(f"Rank {rank}: TensorDatasets created. Train size={len(trainset_emb)}, Test size={len(testset_emb)}", flush=True)
+    
+    #     print(f"Rank {rank}: Creating DistributedSamplers", flush=True)
+    #     train_sampler_emb = DistributedSampler(trainset_emb, shuffle=True, drop_last=False)
+    #     test_sampler_emb  = DistributedSampler(testset_emb, shuffle=False)
+    #     print(f"Rank {rank}: DistributedSamplers created", flush=True)
+    
+    #     print(f"Rank {rank}: Creating DataLoaders", flush=True)
+    #     train_loader_emb = DataLoader(
+    #         trainset_emb, batch_size=args.batch_size, sampler=train_sampler_emb,
+    #         pin_memory=True, num_workers=0
+    #     )
+    #     test_loader_emb  = DataLoader(
+    #         testset_emb,  batch_size=args.batch_size, sampler=test_sampler_emb,
+    #         pin_memory=True, num_workers=0
+    #     )
+    #     print(f"Rank {rank}: DataLoaders created", flush=True)
+    
+    #     if args.save_stage_two_cache and rank == 0:
+    #         import pickle
+    #         os.makedirs("cache", exist_ok=True)
+    #         anchors = best_model.module.map_function(best_model.module.emo_anchor)
+    #         with open(f"./cache/{args.dataset_name}.pkl", 'wb') as f:
+    #             pickle.dump([train_loader_emb, test_loader_emb, anchors], f)
+    #         print(f"Rank {rank}: Saved stage two cache", flush=True)
+    #     else:
+    #         print(f"Rank {rank}: Skip saving stage two cache", flush=True)
+    
+    #     print(f"Rank {rank}: Entering barrier for phase 2", flush=True)
+    #     dist.barrier()
+    #     print(f"Rank {rank}: Exited barrier for phase 2", flush=True)
+    
+    #     if rank == 0:
+    #         anchors = best_model.module.map_function(best_model.module.emo_anchor)
+    #         clf = Classifier(args, anchors).to(device)
+    #         optimizer2 = torch.optim.Adam(
+    #             clf.parameters(), lr=args.stage_two_lr, weight_decay=args.weight_decay
+    #         )
+    #         print("Rank 0: Starting Stage 2 classifier training", flush=True)
+    
+    #         best_valid_score = 0.0
+    #         rep_stage2 = None
+    
+    #         for e in range(10):
+    #             train_loss, train_ce_loss, train_acc, _, _, train_fscore, train_detail_f1 = retrain(
+    #                 clf,
+    #                 nn.CrossEntropyLoss(ignore_index=-1).to(device),
+    #                 train_loader_emb, e, device, args, optimizer2, train=True
+    #             )
+    
+    #             test_loss, test_ce_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1 = retrain(
+    #                 clf,
+    #                 nn.CrossEntropyLoss(ignore_index=-1).to(device),
+    #                 test_loader_emb, e, device, args, optimizer2, train=False
+    #             )
+    
+    #             logger.info(
+    #                 f"Stage2 Epoch: {e + 1}, "
+    #                 f"train_loss: {train_loss:.4f}, train_ce_loss: {train_ce_loss:.4f}, "
+    #                 f"train_acc: {train_acc:.4f}, train_fscore: {train_fscore:.4f}, "
+    #                 f"test_loss: {test_loss:.4f}, test_ce_loss: {test_ce_loss:.4f}, "
+    #                 f"test_acc: {test_acc:.4f}, test_fscore: {test_fscore:.4f}"
+    #             )
+    
+    #             if test_fscore > best_valid_score:
+    #                 best_valid_score = test_fscore
+    #                 torch.save(
+    #                     clf.state_dict(),
+    #                     os.path.join(args.save_path, args.dataset_name, 'clf_.pkl')
+    #                 )
+    #                 rep_stage2 = classification_report(
+    #                     test_label, test_pred, digits=4, target_names=target_names
+    #                 )
+    
+    #         print('Stage 2 summary', flush=True)
+    #         if rep_stage2:
+    #             print(rep_stage2, flush=True)
+    #     else:
+    #         print(f"Rank {rank}: Waiting in Stage 2 (no classifier training)", flush=True)
+    
+    #     print(f"Rank {rank}: Entering final barrier", flush=True)
+    #     dist.barrier()
+    #     print(f"Rank {rank}: Exiting final barrier", flush=True)
     dist.destroy_process_group()
 
 

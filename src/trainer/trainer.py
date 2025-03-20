@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import torch
 import torch.distributed as dist
 # from dataloader import IEMOCAPDataset
@@ -23,12 +24,11 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
         pbar = tqdm(dataloader)
 
     for batch_id, batch in enumerate(pbar):
-
+        
         input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
 
         input_orig = (input_ids, vis_ids, aud_ids, bio_ids, aus_ids)
         input_aug = None
-
         if args.fp16:
             with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
                 loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
@@ -36,7 +36,6 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
         else:
             loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
                                                                                input_aug, label, device, args)
-
         if args.use_nearest_neighbour:
             pred = torch.argmax(anchor_scores[mask], dim=-1)
         else:
@@ -114,6 +113,7 @@ def _forward(model, loss_function, input_orig, input_aug, label, device, args):
     label = label.to(device)
     mask = torch.ones(len(input_orig[0])).to(device)
     mask = mask > 0.5
+
     if model.training:
         log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
                                                                  return_mask_output=True)
@@ -159,7 +159,7 @@ def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=Non
                     new_labels.append(l.cpu().item())
                     new_preds.append(preds[i][j].cpu().item())
     else:
-        return float('nan'), float('nan'), [], [], float('nan'), [], []  # , [], [], []
+        return -1, -1, 0, float('nan'), float('nan'), 0, 0  # , [], [], []
         # plot_representations(sentiment_representations, sentiment_labels, sentiment_anchortypes, anchortype_labels)
     avg_loss = round(np.sum(losses) / len(losses), 4)
     avg_ce_loss = round(np.sum(ce_losses) / len(ce_losses), 4)
@@ -199,4 +199,4 @@ def retrain(model, loss_function, dataloader, epoch, device, args, optimizer=Non
         f1_scores.append(f1)
     # list(precision_recall_fscore_support(y_true=new_labels, y_pred=new_preds)[2])
 
-    return avg_loss, avg_ce_loss, avg_accuracy, ret_labels, ret_preds, avg_fscore, f1_scores
+    return avg_loss, -1, avg_accuracy, ret_labels, ret_preds, avg_fscore, f1_scores # 0 instead of avg_ce_loss
