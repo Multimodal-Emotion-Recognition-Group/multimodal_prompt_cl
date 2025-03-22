@@ -69,9 +69,9 @@ class SupConLoss(nn.Module):
         elif args.dataset_name == "MELD":
             self.emo_anchor = torch.load(f"{args.anchor_path}/meld_emo.pt")
             self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
-        elif args.dataset_name == "EmoryNLP":
-            self.emo_anchor = torch.load(f"{args.anchor_path}/emorynlp_emo.pt")
-            self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
+        # elif args.dataset_name == "EmoryNLP":
+        #     self.emo_anchor = torch.load(f"{args.anchor_path}/emorynlp_emo.pt")
+        #     self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
         self.sim = nn.functional.cosine_similarity(self.emo_anchor.unsqueeze(1), self.emo_anchor.unsqueeze(0), dim=2)
         self.args = args
 
