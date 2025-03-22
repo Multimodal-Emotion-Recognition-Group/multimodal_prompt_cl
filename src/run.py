@@ -184,6 +184,9 @@ def main(args):
     elif args.dataset_name == "MELD":
         n_classes = 7
         target_names = ['anger', 'disgust', 'fear', 'joy', 'sadness', 'surprise', 'neutral']
+    elif args.dataset_name == "IEMOCAP":
+        n_classes = 4
+        target_names = ['neu', 'hap', 'sad', 'ang']
     else:
         raise ValueError('Wrong dataset name. Use IEMOCAP or MELD')
 

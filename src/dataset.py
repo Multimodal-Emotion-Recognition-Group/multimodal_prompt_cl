@@ -47,6 +47,8 @@ class DialogueDataset(Dataset):
     def read(self, dataset_name, split, tokenizer):
         if dataset_name == "IEMOCAP":
             dialogs = load_iemocap_turn(f'./data/{dataset_name}/modified_{split}_data.json')
+        elif dataset_name == "IEMOCAP4":
+            dialogs = load_iemocap_turn(f'./data/{dataset_name}/{split}_data.json', is4classes=True)
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
