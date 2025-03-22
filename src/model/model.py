@@ -41,6 +41,9 @@ class CLModel(nn.Module):
         elif args.dataset_name == "MELD":
             self.emo_anchor = torch.load(f"{args.anchor_path}/meld_emo.pt").to(self.device)
             self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
+        elif args.dataset_name == "IEMOCAP4":
+            self.emo_anchor = torch.load(f"{args.anchor_path}/iemocap_emo.pt").to(self.device)
+            self.emo_label = torch.tensor([0, 1, 2, 3]).to(self.device)
         # elif args.dataset_name == "EmoryNLP":
         #     self.emo_anchor = torch.load(f"{args.anchor_path}/emorynlp_emo.pt").to(self.device)
         #     self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6]).to(self.device)
