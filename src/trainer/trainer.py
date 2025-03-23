@@ -124,7 +124,7 @@ def _forward(model, loss_function, input_orig, input_aug, label, device, args):
                                                                      return_mask_output=True)
             loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model, args)
     loss = loss_output.ce_loss * args.ce_loss_weight + (1 - args.ce_loss_weight) * loss_output.cl_loss
-
+    
     return loss, loss_output, log_prob, label[mask], mask, anchor_scores
 
 

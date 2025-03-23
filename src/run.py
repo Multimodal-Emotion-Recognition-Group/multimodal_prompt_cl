@@ -222,11 +222,11 @@ def main(args):
         start_time = time.time()
     
         # train
-        # train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
-        #     train_or_eval_model(model, loss_function, train_loader, e, device, args,
-        #                         optimizer, lr_scheduler, train=True)
-        # lr_scheduler.step()
-        train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
+        train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
+            train_or_eval_model(model, loss_function, train_loader, e, device, args,
+                                optimizer, lr_scheduler, train=True)
+        lr_scheduler.step()
+        # train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
 
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \

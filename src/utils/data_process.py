@@ -159,13 +159,15 @@ def load_meld_turn(file_path):
 
 #     return dialogues
 def load_iemocap_turn(file_path, is4classes=False):
-    with open('./data/IEMOCAP/label_vocab.pkl', 'rb') as f:
-        emotion_vocab = pickle.load(f)
     data = json.load(open(file_path, 'r'))
     if is4classes:
         speaker_pools = json.load(open('./data/IEMOCAP4/name_pool', 'r'))
+        with open('./data/IEMOCAP4/label_vocab.pkl', 'rb') as f:
+            emotion_vocab = pickle.load(f)
     else:
         speaker_pools = json.load(open('./data/IEMOCAP/name_pool', 'r'))
+        with open('./data/IEMOCAP/label_vocab.pkl', 'rb') as f:
+            emotion_vocab = pickle.load(f)
     dialogues = []
     count = 0
     for dialog in tqdm(data,
