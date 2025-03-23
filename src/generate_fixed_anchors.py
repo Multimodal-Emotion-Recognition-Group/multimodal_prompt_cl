@@ -64,10 +64,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     meld_anchors = optimize_points(args.dim, 7, args.radius, steps=10000)
-    iemocap_achors = optimize_points(args.dim, 6, args.radius, steps=10000)
+    iemocap_anchors = optimize_points(args.dim, 6, args.radius, steps=10000)
+    iemocap4_anchors = optimize_points(args.dim, 4, args.radius, steps=10000)
 
     meld_anchors = torch.tensor(meld_anchors, dtype=torch.float32)
-    iemocap_achors = torch.tensor(iemocap_achors, dtype=torch.float32)
+    iemocap_anchors = torch.tensor(iemocap_anchors, dtype=torch.float32)
+    iemocap4_anchors = torch.tensor(iemocap4_anchors, dtype=torch.float32)
 
     torch.save(meld_anchors, f'{args.save_path}/meld_emo.pt')
-    torch.save(iemocap_achors, f'{args.save_path}/iemocap_emo.pt')
+    torch.save(iemocap_anchors, f'{args.save_path}/iemocap_emo.pt')
+    torch.save(iemocap4_anchors, f'{args.save_path}/iemocap4_emo.pt')

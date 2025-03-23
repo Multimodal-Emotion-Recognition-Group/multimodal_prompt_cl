@@ -70,7 +70,7 @@ class SupConLoss(nn.Module):
             self.emo_anchor = torch.load(f"{args.anchor_path}/meld_emo.pt")
             self.emo_label = torch.tensor([0, 1, 2, 3, 4, 5, 6])
         elif args.dataset_name == "IEMOCAP4":
-            self.emo_anchor = torch.load(f"{args.anchor_path}/iemocap_emo.pt")
+            self.emo_anchor = torch.load(f"{args.anchor_path}/iemocap4_emo.pt")
             self.emo_label = torch.tensor([0, 1, 2, 3])
         # elif args.dataset_name == "EmoryNLP":
         #     self.emo_anchor = torch.load(f"{args.anchor_path}/emorynlp_emo.pt")

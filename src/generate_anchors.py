@@ -32,6 +32,13 @@ if __name__ == "__main__":
         "angry"
     ]
 
+    iemocap4_emos = [
+        "neutral",
+        "happy",
+        "sad",
+        "angry"
+    ]
+
     meld_emos = [
         'anger',
         'disgust',
@@ -60,6 +67,14 @@ if __name__ == "__main__":
             embeddings.append(emb.unsqueeze(0))
         embeddings = torch.cat(embeddings, dim=0)
         torch.save(embeddings, f"./emo_anchors/{save_path}/iemocap_emo.pt")
+    
+    embeddings = []
+    with torch.no_grad():
+        for emo in iemocap4_emos:
+            emb = torch.tensor(feature_extractor(emo,return_tensors = "pt")[0]).mean(0)
+            embeddings.append(emb.unsqueeze(0))
+        embeddings = torch.cat(embeddings, dim=0)
+        torch.save(embeddings, f"./emo_anchors/{save_path}/iemocap4_emo.pt")
 
     embeddings = []
     with torch.no_grad():
