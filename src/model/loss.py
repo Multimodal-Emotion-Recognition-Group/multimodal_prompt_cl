@@ -22,7 +22,7 @@ def loss_function(log_prob, reps, label, mask, model):
     scl_loss_fn = SupConLoss(model.args)
     cl_loss = scl_loss_fn(reps, label, model, return_representations=not model.training)
     ce_loss = ce_loss_fn(log_prob[mask], label[mask])
-    triplet_loss = triplet_loss_fn(reps, label, model, model.args)
+    # triplet_loss = triplet_loss_fn(reps, label, model, model.args)
     return HybridLossOutput(
         ce_loss=ce_loss,
         cl_loss=cl_loss.loss,
