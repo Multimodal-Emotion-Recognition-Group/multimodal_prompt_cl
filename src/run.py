@@ -24,7 +24,7 @@ from sklearn.metrics import classification_report
 
 from dataset import DialogueDataset
 from model.model import CLModel, Classifier
-from model.loss import loss_function
+from model.triplet_loss import loss_function
 from trainer.trainer import train_or_eval_model, retrain
 from utils.data_process import *
 
@@ -70,8 +70,8 @@ def get_paramsgroup(model, args, warmup=False):
     for name, param in model.named_parameters():
         lr = args.lr
         weight_decay = 0.01
-        if id(param) in bert_params:
-            lr = pre_train_lr
+        # if id(param) in bert_params:
+        #     lr = pre_train_lr
         if any(nd in name for nd in no_decay):
             weight_decay = 0
         params.append({
@@ -112,7 +112,7 @@ def get_parser():
 
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
-    parser.add_argument('--lr', type=float, default=4e-4, metavar='LR', help='learning rate')
+    parser.add_argument('--lr', type=float, default=2e-5, metavar='LR', help='learning rate')
 
     parser.add_argument('--ptmlr', type=float, default=1e-5, metavar='LR', help='pretrained model learning rate')
 
@@ -211,11 +211,12 @@ def main(args):
     model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
 
     optimizer = AdamW(get_paramsgroup(model.module if hasattr(model, 'module') else model, args))
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5, last_epoch=-1)
-
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3,
+                                                              threshold=0.01, min_lr=1e-8, verbose=True)
+    prev_lr = optimizer.param_groups[0]['lr']
+    
     best_test_fscore = 0.0
-    best_model = copy.deepcopy(model)
-
+    # best_model = copy.deepcopy(model)
     for e in range(args.epochs):
         train_sampler.set_epoch(e)
     
@@ -225,7 +226,6 @@ def main(args):
         train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
             train_or_eval_model(model, loss_function, train_loader, e, device, args,
                                 optimizer, lr_scheduler, train=True)
-        lr_scheduler.step()
         # train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
 
         # valid
@@ -235,7 +235,24 @@ def main(args):
         # test
         test_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1, _ = \
             train_or_eval_model(model, loss_function, test_loader, e, device, args, train=False)
-    
+        lr_scheduler.step(test_loss)
+
+        curr_lr = optimizer.param_groups[0]['lr']
+        if curr_lr != prev_lr:
+            if rank == 0:
+                logger.info(f"Reducing LR: {prev_lr:.7f} -> {curr_lr:.7f}")
+                print(np.unique([e['lr'] for e in optimizer.param_groups], return_counts=True))
+            if hasattr(model, 'module'):
+                model.module.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'model_.pkl')))
+            else:
+                model.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'model_.pkl')))
+
+            optimizer.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'optimizer_state.pth')))
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = curr_lr
+            
+        prev_lr = curr_lr
+            
         world_size = dist.get_world_size()
         all_test_labels = [None for _ in range(world_size)]
         all_test_preds = [None for _ in range(world_size)]
@@ -260,14 +277,19 @@ def main(args):
                 f'train_loss: {train_loss:.4f}, train_acc: {train_acc:.4f}, train_fscore: {train_fscore:.4f}, '
                 f'valid_loss: {valid_loss:.4f}, valid_acc: {valid_acc:.4f}, valid_fscore: {valid_fscore:.4f}, '
                 f'test_loss: {test_loss:.4f}, test_acc: {test_acc:.4f}, test_fscore: {test_fscore:.4f}, '
-                f'time: {round(time.time() - start_time, 2)} sec'
+                f'lr: {prev_lr:.7f}, time: {round(time.time() - start_time, 2)} sec'
+                f'{str(rep)}'
             )
-    
+            prev_lr = curr_lr
             if test_fscore > best_test_fscore:
                 best_test_fscore = test_fscore
-                best_model = copy.deepcopy(model)
+                # best_model = copy.deepcopy(model)
                 torch.save(model.module.state_dict(),
                            os.path.join(args.save_path, args.dataset_name, 'model_.pkl'))
+                torch.save(optimizer.state_dict(), 
+                           os.path.join(args.save_path, args.dataset_name, 'optimizer_state.pth'))
+            print(np.unique([e['lr'] for e in optimizer.param_groups], return_counts=True))
+            
 
     if rank == 0:
         print("Stage 1 summary")
