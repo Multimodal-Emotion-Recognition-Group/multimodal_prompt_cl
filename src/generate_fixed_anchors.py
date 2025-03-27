@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import argparse
+import os
 
 def init_points(dim, num_points, radius):
     points = np.random.randn(num_points, dim)
@@ -62,6 +63,9 @@ if __name__ == '__main__':
     parser.add_argument('--radius', type=float, default=50.)
     parser.add_argument('--save_path', type=str, default='./emo_anchors/fixed_anchors')
     args = parser.parse_args()
+
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
 
     meld_anchors = optimize_points(args.dim, 7, args.radius, steps=10000)
     iemocap_anchors = optimize_points(args.dim, 6, args.radius, steps=10000)

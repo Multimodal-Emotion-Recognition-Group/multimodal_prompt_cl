@@ -136,6 +136,7 @@ def get_parser():
     parser.add_argument("--disable_two_stage_training", action="store_true")
     parser.add_argument("--stage_two_lr", default=1e-4, type=float)
     parser.add_argument("--anchor_path", type=str, default=None)
+    parser.add_argument("--use_pretrained", action="store_true")
 
     # analysis
     parser.add_argument("--save_stage_two_cache", action="store_true")
@@ -211,7 +212,7 @@ def main(args):
     model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
 
     optimizer = AdamW(get_paramsgroup(model.module if hasattr(model, 'module') else model, args))
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5, last_epoch=-1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9, last_epoch=-1)
 
     best_test_fscore = 0.0
     best_model = copy.deepcopy(model)
@@ -260,7 +261,8 @@ def main(args):
                 f'train_loss: {train_loss:.4f}, train_acc: {train_acc:.4f}, train_fscore: {train_fscore:.4f}, '
                 f'valid_loss: {valid_loss:.4f}, valid_acc: {valid_acc:.4f}, valid_fscore: {valid_fscore:.4f}, '
                 f'test_loss: {test_loss:.4f}, test_acc: {test_acc:.4f}, test_fscore: {test_fscore:.4f}, '
-                f'time: {round(time.time() - start_time, 2)} sec'
+                f'time: {round(time.time() - start_time, 2)} sec \n'
+                f'{str(rep)}'
             )
     
             if test_fscore > best_test_fscore:
