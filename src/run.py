@@ -136,6 +136,7 @@ def get_parser():
     parser.add_argument("--disable_two_stage_training", action="store_true")
     parser.add_argument("--stage_two_lr", default=1e-4, type=float)
     parser.add_argument("--anchor_path", type=str, default=None)
+    parser.add_argument("--use_pretrained", action="store_true")
 
     # analysis
     parser.add_argument("--save_stage_two_cache", action="store_true")
@@ -226,7 +227,6 @@ def main(args):
         train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
             train_or_eval_model(model, loss_function, train_loader, e, device, args,
                                 optimizer, lr_scheduler, train=True)
-        # train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
 
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \

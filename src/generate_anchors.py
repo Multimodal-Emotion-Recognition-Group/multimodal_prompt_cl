@@ -18,6 +18,9 @@ def get_parser():
 if __name__ == "__main__":
     args = get_parser()
 
+    if not os.path.exists("./emo_anchors/{save_path}"):
+        os.mkdir("./emo_anchors/{save_path}")
+        
     tokenizer = AutoTokenizer.from_pretrained(args.bert_path)
 
     model = AutoModel.from_pretrained(args.bert_path)
