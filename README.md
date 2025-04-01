@@ -6,7 +6,7 @@
 
 ## Launch
 1. `python src/generate_anchors.py --bert_path <model_path>` - generate emotion anchors (there are already generated anchors for RoBERTa-large)
-2. `torchrun --nproc_per_node=N_GPU ./src/run.py --epochs 10 --batch_size 16 --dataset_name MELD --anchor_path ./emo_anchors/sup-simcse-roberta-large --use_nearest_neighbour`
+2. `torchrun --nproc_per_node=N_GPU ./src/run.py --epochs 10 --batch_size 16 --dataset_name MELD --anchor_path ./emo_anchors/sup-simcse-roberta-large --use_nearest_neighbour --use_pretrained`
 
 ## Fixed anchors setup
 1. `python src/generate_fixed_anchors.py`
