@@ -24,7 +24,7 @@ from sklearn.metrics import classification_report
 
 from dataset import DialogueDataset
 from model.model import CLModel, Classifier
-from model.triplet_loss import loss_function
+from model.triplet_loss import loss_function, compute_semi_hard_triplet_loss
 from trainer.trainer import train_or_eval_model, retrain
 from utils.data_process import *
 
@@ -113,7 +113,7 @@ def get_parser():
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
     parser.add_argument('--lr', type=float, default=2e-5, metavar='LR', help='learning rate')
-
+    
     parser.add_argument('--ptmlr', type=float, default=1e-5, metavar='LR', help='pretrained model learning rate')
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
@@ -137,7 +137,9 @@ def get_parser():
     parser.add_argument("--stage_two_lr", default=1e-4, type=float)
     parser.add_argument("--anchor_path", type=str, default=None)
     parser.add_argument("--use_pretrained", action="store_true")
-
+    parser.add_argument('--triplet_margin', type=float, default=0.2)
+    parser.add_argument('--n_semi_hard_triplets', type=int, default=10)
+    
     # analysis
     parser.add_argument("--save_stage_two_cache", action="store_true")
     parser.add_argument("--save_path", default='./saved_models/', type=str)
@@ -209,7 +211,7 @@ def main(args):
     model = CLModel(args, n_classes, tokenizer)
     model.to(device)
 
-    model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
 
     optimizer = AdamW(get_paramsgroup(model.module if hasattr(model, 'module') else model, args))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3,
@@ -219,14 +221,40 @@ def main(args):
     best_test_fscore = 0.0
     # best_model = copy.deepcopy(model)
     for e in range(args.epochs):
+        if rank == 0:
+            global_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
+            model.eval()
+            global_embeddings_list = []
+            global_labels_list = []
+            with torch.no_grad():
+                for batch in tqdm(global_loader, desc="Global mining"):
+                    input_ids, label, vis_ids, aud_ids, bio_ids, aus_ids = batch
+                    _, masked_mapped_output, _, _ = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
+                                                          return_mask_output=True)
+                    global_embeddings_list.append(masked_mapped_output.cpu())
+                    global_labels_list.append(label.cpu())
+                    
+            global_embeddings = torch.cat(global_embeddings_list, dim=0)
+            global_labels = torch.cat(global_labels_list, dim=0)
+
+            global_triplet_loss = compute_semi_hard_triplet_loss(global_embeddings, global_labels,
+                                                                 margin=args.triplet_margin,
+                                                                 n_triplets=args.n_semi_hard_triplets)
+            num_batches = len(train_loader)
+            model.train()
+        else:
+            global_triplet_loss = torch.tensor(0.0, device=device)
+            num_batches = len(train_loader)
+
         train_sampler.set_epoch(e)
     
         start_time = time.time()
     
-        # train
         train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
             train_or_eval_model(model, loss_function, train_loader, e, device, args,
-                                optimizer, lr_scheduler, train=True)
+                                optimizer, lr_scheduler, train=True,
+                                global_triplet_loss=global_triplet_loss,
+                                num_batches=num_batches)
 
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \
@@ -246,7 +274,6 @@ def main(args):
                 model.module.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'model_.pkl')))
             else:
                 model.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'model_.pkl')))
-
             optimizer.load_state_dict(torch.load(os.path.join(args.save_path, args.dataset_name, 'optimizer_state.pth')))
             for param_group in optimizer.param_groups:
                 param_group['lr'] = curr_lr
@@ -288,7 +315,6 @@ def main(args):
                            os.path.join(args.save_path, args.dataset_name, 'model_.pkl'))
                 torch.save(optimizer.state_dict(), 
                            os.path.join(args.save_path, args.dataset_name, 'optimizer_state.pth'))
-            print(np.unique([e['lr'] for e in optimizer.param_groups], return_counts=True))
             
 
     if rank == 0:

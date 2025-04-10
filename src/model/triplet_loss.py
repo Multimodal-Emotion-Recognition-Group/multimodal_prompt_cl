@@ -4,6 +4,50 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import psutil
+
+import torch
+import torch.nn.functional as F
+
+def compute_pairwise_cosine_distance(embeddings):
+    norm_emb = F.normalize(embeddings, p=2, dim=1)
+    cosine_sim = torch.matmul(norm_emb, norm_emb.T)
+    distances = 1 - cosine_sim  
+    return distances
+
+def compute_semi_hard_triplet_loss(embeddings, labels, margin=0.2, n_triplets=10, max_pos_per_anchor=5):
+    device = embeddings.device
+    N = embeddings.size(0)
+    D = compute_pairwise_cosine_distance(embeddings)  # (N, N)
+    
+    loss_list = []
+    
+    for i in tqdm(range(N), desc="Computing semi-hard triplets"):
+        pos_indices = (labels == labels[i]).nonzero(as_tuple=False).squeeze()
+        pos_indices = pos_indices[pos_indices != i]
+        if pos_indices.numel() == 0:
+            continue
+        if pos_indices.numel() > max_pos_per_anchor:
+            perm = torch.randperm(pos_indices.numel(), device=device)[:max_pos_per_anchor]
+            pos_indices = pos_indices[perm]
+        
+        for j in pos_indices:
+            d_ap = D[i, j]
+            D_anchor = D[i, :]  # (N,)
+            mask_neg = (labels != labels[i])
+            candidate_mask = mask_neg & (D_anchor > d_ap) & (D_anchor < d_ap + margin)
+            if candidate_mask.sum() == 0:
+                continue
+            losses = F.relu(d_ap - D_anchor[candidate_mask] + margin)
+            if losses.numel() > 0:
+                topk = losses.topk(min(n_triplets, losses.numel()))[0]
+                loss_list.append(topk)
+    
+    if loss_list:
+        all_losses = torch.cat(loss_list)
+        return all_losses.mean()
+    else:
+        return torch.tensor(0.0, device=device)
 
 @dataclass
 class HybridLossOutput:

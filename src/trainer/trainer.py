@@ -2,18 +2,29 @@ import numpy as np
 import time
 import torch
 import torch.distributed as dist
-# from dataloader import IEMOCAPDataset
 from torch import nn as nn
 from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
 
 
+class DummyLossOutput:
+    def __init__(self, ce_loss, cl_loss, sentiment_representations=None, sentiment_labels=None,
+                 sentiment_anchortypes=None, anchortype_labels=None, max_cosine=None):
+        self.ce_loss = ce_loss
+        self.cl_loss = cl_loss
+        self.sentiment_representations = sentiment_representations
+        self.sentiment_labels = sentiment_labels
+        self.sentiment_anchortypes = sentiment_anchortypes
+        self.anchortype_labels = anchortype_labels
+        self.max_cosine = max_cosine
+
+
 def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, optimizer=None, lr_scheduler=None,
-                        train=False):
+                        train=False, global_triplet_loss=None, num_batches=None):
     losses, preds, labels = [], [], []
     sentiment_representations, sentiment_labels = [], []
 
-    assert not train or optimizer != None
+    assert not train or optimizer is not None
     if train:
         model.train()
     else:
@@ -21,7 +32,7 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
     if args.disable_training_progress_bar:
         pbar = dataloader
     else:
-        pbar = tqdm(dataloader)
+        pbar = tqdm(dataloader, desc=f"{'Train' if train else 'Eval'} loop")
 
     for batch_id, batch in enumerate(pbar):
         
@@ -32,10 +43,12 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
         if args.fp16:
             with torch.autocast(device_type="cuda" if args.cuda else "cpu"):
                 loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
-                                                                                   input_aug, label, device, args)
+                                                                                   input_aug, label, device, args,
+                                                                                   global_triplet_loss, num_batches)
         else:
             loss, loss_output, log_prob, label, mask, anchor_scores = _forward(model, loss_function, input_orig,
-                                                                               input_aug, label, device, args)
+                                                                               input_aug, label, device, args,
+                                                                               global_triplet_loss, num_batches)
         if args.use_nearest_neighbour:
             pred = torch.argmax(anchor_scores[mask], dim=-1)
         else:
@@ -107,7 +120,8 @@ def train_or_eval_model(model, loss_function, dataloader, epoch, device, args, o
     return avg_loss, avg_accuracy, ret_labels, ret_preds, avg_fscore, f1_scores, max_cosine
 
 
-def _forward(model, loss_function, input_orig, input_aug, label, device, args):
+def _forward(model, loss_function, input_orig, input_aug, label, device, args,
+             global_triplet_loss, num_batches):
     # input_ids, vis_ids, aud_ids, bio_ids = input_orig[0].to(device), input_orig[1].to(device), input_orig[2].to(device), input_orig[3].to(device)
     input_ids, vis_ids, aud_ids, bio_ids, aus_ids = input_orig
     label = label.to(device)
@@ -117,14 +131,30 @@ def _forward(model, loss_function, input_orig, input_aug, label, device, args):
     if model.training:
         log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
                                                                  return_mask_output=True)
-        loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model, args)
     else:
         with torch.no_grad():
             log_prob, masked_mapped_output, _, anchor_scores = model(input_ids, vis_ids, aud_ids, bio_ids, aus_ids,
                                                                      return_mask_output=True)
-            loss_output = loss_function(log_prob, masked_mapped_output, label, mask, model, args)
-    loss = loss_output.ce_loss * args.ce_loss_weight + (1 - args.ce_loss_weight) * loss_output.cl_loss
-    
+    ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-1).to(device)
+    ce_loss = ce_loss_fn(log_prob[mask], label[mask])
+
+    if global_triplet_loss is None or num_batches is None:
+        triplet_loss_term = torch.tensor(0.0, device=device)
+    else:
+        triplet_loss_term = global_triplet_loss / num_batches
+
+    loss = ce_loss * args.ce_loss_weight + triplet_loss_term * (1 - args.ce_loss_weight)
+
+    loss_output = DummyLossOutput(
+        ce_loss=ce_loss,
+        cl_loss=triplet_loss_term,
+        sentiment_representations=None,
+        sentiment_labels=None,
+        sentiment_anchortypes=None,
+        anchortype_labels=None,
+        max_cosine=None
+    )
+
     return loss, loss_output, log_prob, label[mask], mask, anchor_scores
 
 
