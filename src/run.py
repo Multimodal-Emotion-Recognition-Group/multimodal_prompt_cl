@@ -228,24 +228,8 @@ def main(args):
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \
             train_or_eval_model(model, loss_function, valid_loader, e, device, args, train=False)
-    
-        # world_size = dist.get_world_size()
-        # all_test_labels = [None for _ in range(world_size)]
-        # all_test_preds = [None for _ in range(world_size)]
-        # local_labels = test_label.tolist() if isinstance(test_label, torch.Tensor) else test_label
-        # local_preds = test_pred.tolist() if isinstance(test_pred, torch.Tensor) else test_pred
-    
-        # dist.all_gather_object(all_test_labels, local_labels)
-        # dist.all_gather_object(all_test_preds, local_preds)
         
         if rank == 0:
-            # full_test_labels = []
-            # full_test_preds = []
-            # for sublist in all_test_labels:
-            #     full_test_labels.extend(sublist)
-            # for sublist in all_test_preds:
-            #     full_test_preds.extend(sublist)
-
             # test
             test_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1, _ = \
                 train_or_eval_model(model, loss_function, test_loader, e, device, args, train=False)
