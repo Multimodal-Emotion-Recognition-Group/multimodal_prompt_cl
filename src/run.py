@@ -197,7 +197,7 @@ def main(args):
     train_loader = DataLoader(trainset, batch_size=args.batch_size, sampler=train_sampler,
                               pin_memory=True, num_workers=8)
     valid_loader = DataLoader([], batch_size=args.batch_size, shuffle=False, num_workers=8)
-    test_loader = DataLoader(testset, batch_size=args.batch_size, sampler=test_sampler,
+    test_loader = DataLoader(testset, batch_size=args.batch_size // 2, shuffle=False, # sampler=test_sampler,
                              pin_memory=True, num_workers=8)
 
     if rank == 0:
@@ -212,6 +212,7 @@ def main(args):
 
     best_test_fscore = 0.0
     best_model = copy.deepcopy(model)
+    best_rep = None
 
     for e in range(args.epochs):
         train_sampler.set_epoch(e)
@@ -219,38 +220,37 @@ def main(args):
         start_time = time.time()
     
         # train
-        # train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
-        #     train_or_eval_model(model, loss_function, train_loader, e, device, args,
-        #                         optimizer, lr_scheduler, train=True)
-        # lr_scheduler.step()
-        train_loss, train_acc, train_fscore, train_detail_f1, max_cosine = -1, -1, -1, -1, -1
+        train_loss, train_acc, _, _, train_fscore, train_detail_f1, max_cosine = \
+            train_or_eval_model(model, loss_function, train_loader, e, device, args,
+                                optimizer, lr_scheduler, train=True)
+        lr_scheduler.step()
 
         # valid
         valid_loss, valid_acc, _, _, valid_fscore, valid_detail_f1, _ = \
             train_or_eval_model(model, loss_function, valid_loader, e, device, args, train=False)
     
-        # test
-        test_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1, _ = \
-            train_or_eval_model(model, loss_function, test_loader, e, device, args, train=False)
+        # world_size = dist.get_world_size()
+        # all_test_labels = [None for _ in range(world_size)]
+        # all_test_preds = [None for _ in range(world_size)]
+        # local_labels = test_label.tolist() if isinstance(test_label, torch.Tensor) else test_label
+        # local_preds = test_pred.tolist() if isinstance(test_pred, torch.Tensor) else test_pred
     
-        world_size = dist.get_world_size()
-        all_test_labels = [None for _ in range(world_size)]
-        all_test_preds = [None for _ in range(world_size)]
-        local_labels = test_label.tolist() if isinstance(test_label, torch.Tensor) else test_label
-        local_preds = test_pred.tolist() if isinstance(test_pred, torch.Tensor) else test_pred
-    
-        dist.all_gather_object(all_test_labels, local_labels)
-        dist.all_gather_object(all_test_preds, local_preds)
+        # dist.all_gather_object(all_test_labels, local_labels)
+        # dist.all_gather_object(all_test_preds, local_preds)
         
         if rank == 0:
-            full_test_labels = []
-            full_test_preds = []
-            for sublist in all_test_labels:
-                full_test_labels.extend(sublist)
-            for sublist in all_test_preds:
-                full_test_preds.extend(sublist)
+            # full_test_labels = []
+            # full_test_preds = []
+            # for sublist in all_test_labels:
+            #     full_test_labels.extend(sublist)
+            # for sublist in all_test_preds:
+            #     full_test_preds.extend(sublist)
+
+            # test
+            test_loss, test_acc, test_label, test_pred, test_fscore, test_detail_f1, _ = \
+                train_or_eval_model(model, loss_function, test_loader, e, device, args, train=False)
     
-            rep = classification_report(full_test_labels, full_test_preds, digits=4, target_names=target_names)
+            rep = classification_report(test_label, test_pred, digits=4, target_names=target_names)
     
             logger.info(
                 f'Epoch: {e + 1}, '
@@ -263,12 +263,13 @@ def main(args):
             if test_fscore > best_test_fscore:
                 best_test_fscore = test_fscore
                 best_model = copy.deepcopy(model)
+                best_rep = rep
                 torch.save(model.module.state_dict(),
                            os.path.join(args.save_path, args.dataset_name, 'model_.pkl'))
 
     if rank == 0:
         print("Stage 1 summary")
-        print(rep)
+        print(best_rep)
         logger.info('Finish stage 1 training!')
 
     # if not args.disable_two_stage_training:
