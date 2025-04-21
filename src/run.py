@@ -249,7 +249,7 @@ def main(args):
                 best_model = copy.deepcopy(model)
                 best_rep = rep
                 torch.save(model.module.state_dict(),
-                           os.path.join(args.save_path, args.dataset_name, 'model_.pkl'))
+                           os.path.join(args.save_path, args.dataset_name, 'model.pt'))
 
     if rank == 0:
         print("Stage 1 summary")
