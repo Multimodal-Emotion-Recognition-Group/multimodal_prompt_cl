@@ -46,11 +46,11 @@ class DialogueDataset(Dataset):
 
     def read(self, dataset_name, split, tokenizer):
         if dataset_name == "IEMOCAP":
-            dialogs = load_iemocap_turn(f'./data/{dataset_name}/modified_{split}_data_v5.json')
+            dialogs = load_iemocap_turn(f'./data/{dataset_name}/modified_{split}_data.json')
         elif dataset_name == "EmoryNLP":
             dialogs = load_emorynlp_turn(f'./data/{dataset_name}/{split}_data.json')
         elif dataset_name == "MELD":
-            dialogs = load_meld_turn(f'./data/{dataset_name}/modified_{split}_data_v5.csv')
+            dialogs = load_meld_turn(f'./data/{dataset_name}/modified4_{split}_data.csv')
         print("number of dialogs:", len(dialogs))
 
         data_list = []
