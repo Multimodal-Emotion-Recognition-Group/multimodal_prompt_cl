@@ -82,15 +82,15 @@ class CLModel(nn.Module):
         bio_emb = bio_cap[:, 0, :]
         del bio_cap
 
-        aus_ids = aus_ids.to(self.device)
-        aus_cap = self.f_context_encoder(
-            input_ids=aus_ids,
-            attention_mask=torch.ones_like(aus_ids).long(),
-            output_hidden_states=True,
-            return_dict=True
-        )['last_hidden_state']
-        aus_emb = aus_cap[:, 0, :]
-        del aus_cap
+        # aus_ids = aus_ids.to(self.device)
+        # aus_cap = self.f_context_encoder(
+        #     input_ids=aus_ids,
+        #     attention_mask=torch.ones_like(aus_ids).long(),
+        #     output_hidden_states=True,
+        #     return_dict=True
+        # )['last_hidden_state']
+        # aus_emb = aus_cap[:, 0, :]
+        # del aus_cap
 
         sentences = sentences.to(self.device)
         mask = mask.to(self.device)
@@ -98,7 +98,7 @@ class CLModel(nn.Module):
         utterance_embs[:, 1] = vis_emb
         utterance_embs[:, 2] = aud_emb
         utterance_embs[:, 3] = bio_emb
-        utterance_embs[:, 4] = aus_emb
+        # utterance_embs[:, 4] = aus_emb
 
         utterance_encoded = self.f_context_encoder(
             # input_ids=sentences,
