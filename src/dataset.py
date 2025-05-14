@@ -69,7 +69,7 @@ class DialogueDataset(Dataset):
                 utterance_ids.append(token_ids)
                 if turn_data['label'] < 0:
                     continue
-                full_context = [self.CLS,  self.SEP] # self.VIS, self.AUD, self.BIO, self.AUS,
+                full_context = [self.CLS, self.VIS, self.AUD, self.BIO, self.AUS, self.SEP]
                 lidx = 0
                 for lidx in range(idx):
                     total_len = sum([len(item) for item in utterance_ids[lidx:]]) + 12 # 8
