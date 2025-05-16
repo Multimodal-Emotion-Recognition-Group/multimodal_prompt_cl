@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Multimodal Adaptive Emotion Anchoring</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      max-width: 700px;
+      margin: auto;
+    }
+    form {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 12px 16px;
+      align-items: start;
+    }
+    label {
+      padding-top: 6px;
+      justify-self: end;
+    }
+    textarea {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow: hidden;
+      resize: none;
+      line-height: 1.2;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      word-break: break-all;
+      box-sizing: border-box;
+    }
+    .full-width {
+      grid-column: 1 / -1;
+    }
+    button {
+      grid-column: 1 / -1;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      justify-self: start;
+    }
+  </style>
+  <script>
+    function toggleField(id, chk) {
+      const ta = document.getElementById(id);
+      ta.disabled = !chk.checked;
+      if (!ta.disabled) autoGrow(ta);
+    }
+    function autoGrow(el) {
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('textarea').forEach(ta => autoGrow(ta));
+    });
+  </script>
+</head>
+<body>
+  <h1>Multimodal Adaptive Emotion Anchoring</h1>
+  <form method="post">
+   <label for="text">Text</label>
+    <textarea id="text" name="text" rows="1" oninput="autoGrow(this)">{{ request.form.get('text', '') }}</textarea>
+    {% for label in labels %}
+      <label for="field{{ loop.index }}">{{ label }}</label>
+      <div>
+        <input type="checkbox" id="chk{{ loop.index }}" name="active{{ loop.index }}" onclick="toggleField('field{{ loop.index }}', this)" {% if request.form.get('active' ~ loop.index) %}checked{% endif %}>
+        <textarea id="field{{ loop.index }}" name="val{{ loop.index }}" rows="1" {% if not request.form.get('active' ~ loop.index) %}disabled{% endif %} oninput="autoGrow(this)">{{ request.form.get('val' ~ loop.index, '') }}</textarea>
+      </div>
+    {% endfor %}
+    <button type="submit">Submit</button>
+  </form>
+
+  {% if plot_png %}
+    <h2 style="margin-top:40px;">Anchor Distances</h2>
+    <img src="data:image/png;base64,{{ plot_png }}" alt="Histogram" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:8px;">
+  {% endif %}
+</body>
+</html>
