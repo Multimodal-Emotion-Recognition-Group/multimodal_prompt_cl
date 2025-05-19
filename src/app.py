@@ -1,21 +1,18 @@
-# --- начало app.py ---
-
-import os
-from pathlib import Path
 import io
 import base64
 import random
 import argparse
+from pathlib import Path
 
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+from transformers import AutoTokenizer
 from flask import Flask, request, render_template
 
 import torch
 
 from model.model import CLModel
-from dataset import DialogueDataset
 
 matplotlib.use('Agg')
 
@@ -44,46 +41,32 @@ def select_weights_file(active_flags: list[bool]) -> str:
 
 
 def compute_anchor_distances(values, args):
-    """
-    values: [text, vis_cap, aud_cap, bio, aus]
-    Возвращает список из 6 дистанций 1 - cosine_sim между 
-    masked_mapped_output и каждым из anchors.
-    """
-    # 1) подготовим модель
     active_flags = [v is not None for v in values[1:]]
     model = CLModel(args, n_classes=len(CLASSES), tokenizer=args.tokenizer).to(args.device)
     weights_file = WEIGHTS_ROOT / select_weights_file(active_flags)
     model.load_state_dict(torch.load(weights_file, map_location=args.device))
     model.eval()
 
-    # 2) подготовим входы без DialogueDataset.read()
     text, vis_cap, aud_cap, bio, aus = values
-    # формируем prompt p2 exactly как в DialogueDataset.process:
-    # "For utterance: {text} {speaker} feels <mask>"
-    # speaker у нас всегда пустая строка в demo
     prompt = "For utterance: " + (text or "") + "  feels <mask> "
-    token_ids = args.tokenizer(prompt)['input_ids'][1:]  # отрезаем CLS
-    # никаких прошлых window'ов, просто сама последовательность
+    token_ids = args.tokenizer(prompt)['input_ids'][1:]
     seq = token_ids[-args.max_len:]
     pad_len = args.max_len - len(seq)
     seq = seq + [args.pad_value] * pad_len
-    p2 = torch.LongTensor(seq).unsqueeze(0).to(args.device)  # (1, max_len)
+    p2 = torch.LongTensor(seq).unsqueeze(0).to(args.device)
 
-    # вспомогательная функция для токенизации + паддинга
     def make_modal(t: str):
         ids = args.tokenizer(t or "")['input_ids']
         ids = ids[-args.max_len:]
         pad = args.max_len - len(ids)
         return torch.LongTensor(ids + [args.pad_value] * pad).unsqueeze(0).to(args.device)
 
-    vis = make_modal(vis_cap)   if active_flags[0] else None
-    aud = make_modal(aud_cap)   if active_flags[1] else None
-    bio = make_modal(bio)       if active_flags[2] else None
-    aus = make_modal(aus)       if active_flags[3] else None
+    vis = make_modal(vis_cap) if active_flags[0] else None
+    aud = make_modal(aud_cap) if active_flags[1] else None
+    bio = make_modal(bio) if active_flags[2] else None
+    aus = make_modal(aus) if active_flags[3] else None
 
-    # 3) прямой проход
     with torch.no_grad():
-        # forward; может вернуть anchor_scores=None
         _, mask_mapped_output, _, anchor_scores = model(
             p2,
             vis,
@@ -93,20 +76,14 @@ def compute_anchor_distances(values, args):
             return_mask_output=True
         )
         if anchor_scores is None:
-            # вычисляем anchor_scores вручную
-            # anchors – это исходные emo_anchor, пропущенные через map_function
             anchors = model.map_function(model.emo_anchor)
-            # mask_mapped_output: [1, dim_low], anchors: [n_cls, dim_low]
-            # score_func делает (1+cosine)/2+eps
             anchor_scores = model.score_func(
-                mask_mapped_output.unsqueeze(1),  # [1,1,dim]
-                anchors.unsqueeze(0)              # [1,n_cls,dim]
+                mask_mapped_output.unsqueeze(1),
+                anchors.unsqueeze(0)
             )
         sims = anchor_scores.squeeze(0).cpu().tolist()
 
-    # 4) превращаем cosine_sim → distance
     return [1.0 - s for s in sims]
-
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -146,14 +123,14 @@ def get_parser():
 
     parser.add_argument('--bert_path', type=str, default='princeton-nlp/sup-simcse-roberta-base')
     parser.add_argument('--anchor_path', type=str, default='./emo_anchors/sup-simcse-roberta-base')
-    parser.add_argument('--use_nearest_neighbour', action='store_true',)
+    parser.add_argument('--use_nearest_neighbour', action='store_true', )
     parser.add_argument('--fp16', action='store_true')
     parser.add_argument('--dataset_name', type=str, default='IEMOCAP')
 
     parser.add_argument('--wp', type=int, default=8)
     parser.add_argument('--wf', type=int, default=0)
     parser.add_argument('--pad_value', type=int, default=1)
-    parser.add_argument('--mask_value', type=int, default=2) 
+    parser.add_argument('--mask_value', type=int, default=2)
     parser.add_argument('--max_len', type=int, default=256)
 
     parser.add_argument('--temp', type=float, default=0.5)
@@ -165,18 +142,12 @@ def get_parser():
     return parser
 
 
-
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
-    # device & seeds
     seed_everything(args.seed)
     args.device = torch.device('cuda' if torch.cuda.is_available() and args.fp16 else 'cpu')
-    # tokenizer хранит специальные токены и нужен для DialogueDataset
-    from transformers import AutoTokenizer
     args.tokenizer = AutoTokenizer.from_pretrained(args.bert_path)
     args.tokenizer.add_tokens(["<mask>", "[VIS]", "[AUD]", "[BIO]", "[AUS]"])
-    # сохраняем в Flask config
     app.config['ARGS'] = args
-    # запускаем
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)
