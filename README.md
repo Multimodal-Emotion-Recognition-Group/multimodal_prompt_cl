@@ -15,13 +15,13 @@ Demo link: https://drive.google.com/file/d/1hRlLbL4EiVOZY26aoFEymrF4vf9tR3Tv/vie
 |SACL-LSTM|66.86|69.22|
 |HiDialog|66.96|-|
 |DF-ERC|67.03|71.75|
-|EACL|67.12|71.41|
+|EACL|67.12|70.41|
 |SPCL-CL-ERC|65.51|70.66|
 |TelMe|67.37|70.48|
 |Mamba-like Model|67.60|-|
-|SpeechCueLLM|67.60|72.60|
+|SpeechCueLLM|67.60|**72.60**|
 |**Ours**|67.27|70.25|
-|**Ours w/correction**|67.69|70.53|
+|**Ours w/correction**|**67.69**|70.53|
 
 ## Launch
 1. `python src/generate_anchors.py --bert_path <model_path>` - generate emotion anchors (there are already generated anchors for RoBERTa-large)
