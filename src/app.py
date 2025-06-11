@@ -12,38 +12,114 @@ from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 from matplotlib import cm
+from matplotlib.figure import Figure
 
 from model.model import CLModel
 
 import streamlit as st
+
 st.set_page_config(
     page_title="Emotion-anchor demo",
     layout="wide"
 )
+st.markdown("""
+<style>
+.icon-img {display:block; margin:0 auto;}
+.icon-label{font-size:11px;text-align:center;margin-top:2px;}
+.disabled-row {filter:grayscale(100%);opacity:.35;}
+</style>
+""", unsafe_allow_html=True)
+st.markdown("""
+    <style>
+      div.stButton{
+        display:flex;
+        justify-content:flex-end;   
+        padding-top:6px;
+      }
 
-CLASSES     = ['neu', 'exc', 'fru', 'sad', 'hap', 'ang']
+      div.stButton>button{
+        background:#E53935;
+        color:#fff;
+        padding:14px 56px;
+        font-size:20px;
+        border:none;
+        border-radius:8px;
+      }
+      div.stButton>button:hover{
+        background:#C62828;
+      }
+    </style>
+    """,
+            unsafe_allow_html=True
+            )
+
+CLASSES = ['neu', 'exc', 'fru', 'sad', 'hap', 'ang']
 MODAL_NAMES = ['VIS', 'AUD', 'BIO', 'AUS']
-WEIGHTS_ROOT = Path("./weights")                    
+ICON = {
+    "TEXT": "icons/notes.png",
+    "VIS": "icons/eye.png",
+    "AUD": "icons/speaker.png",
+    "BIO": "icons/user.png",
+    "AUS": "icons/laugh.png",
+}
+FIXED_COLORS = {
+    "neu": "#808080",
+    "exc": "#32cd32",
+    "fru": "#964B00",
+    "sad": "#5b8ff9",
+    "hap": "#FF8C00",
+    "ang": "#DC143C",
+}
+
+
+def b64_icon(path: str) -> str:
+    data = Path(path).read_bytes()
+    return base64.b64encode(data).decode()
+
+
+ICON64 = {k: b64_icon(v) for k, v in ICON.items()}  # ICON словарь был раньше
+
+WEIGHTS_ROOT = Path("./weights")
 EMOJI = {
     "neu": "😐",
-    "exc": "🤩",
-    "fru": "😠",
+    "exc": "😁",
+    "fru": "😞",
     "sad": "😢",
     "hap": "😄",
     "ang": "😡",
 }
+
+
+def emoji_png(label: str, size_px: int = 120) -> str:
+    emoji_char = EMOJI.get(label, "❓") + "\uFE0E"  # VS-15 = text glyph
+    fig = Figure(figsize=(size_px / 80, size_px / 80), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.axis("off")
+    ax.text(0.5, 0.5, emoji_char,
+            ha="center", va="center",
+            fontsize=size_px * 0.8,
+            color=FIXED_COLORS.get(label, "#888888"))
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100, transparent=True)
+    plt.close(fig)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"<img src='data:image/png;base64,{b64}' width='{size_px}' height='{size_px}'>"
+
 
 def load_model(weights_file: Path, _args: argparse.Namespace):
     model = CLModel(args, n_classes=len(CLASSES), tokenizer=args.tokenizer).to(args.device)
     model.load_state_dict(torch.load(weights_file, map_location=args.device))
     model.eval()
     return model
-    
+
+
 def seed_everything(seed: int = 2):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
 seed_everything(2)
 
 
@@ -80,55 +156,77 @@ def compute_anchor_distances(values, args):
             p2, vis, aud, bio, aus, return_mask_output=True
         )
 
-        anchors = model.map_function(model.emo_anchor)             
+        anchors = model.map_function(model.emo_anchor)
         cosine_sims = F.cosine_similarity(
-            mask_mapped_output.unsqueeze(1),   
-            anchors.unsqueeze(0),              
+            mask_mapped_output.unsqueeze(1),
+            anchors.unsqueeze(0),
             dim=-1
-        ).squeeze(0)                           
-        cosine_dists = 1.0 - cosine_sims       
+        ).squeeze(0)
+        cosine_dists = 1.0 - cosine_sims
 
     return cosine_dists.tolist(), mask_mapped_output.cpu(), anchors.cpu()
 
 
+# PATCH P – вставьте вместо старой tsne_figure
 def tsne_figure(obj_vec: torch.Tensor,
                 anchor_vecs: torch.Tensor,
-                distances: list[float]) -> plt.Figure:
+                distances: list[float],
+                pred_label: str) -> plt.Figure:
     data = torch.cat([obj_vec, anchor_vecs], dim=0).numpy()
-    tsne = TSNE(n_components=2, random_state=42, perplexity=min(5, len(data)-1))
-    coords = tsne.fit_transform(data)
+    coords = TSNE(n_components=2, random_state=42,
+                  perplexity=min(5, len(data) - 1)).fit_transform(data)
     obj_xy, anchors_xy = coords[0], coords[1:]
 
     dirs = anchors_xy - obj_xy
     norms = np.linalg.norm(dirs, axis=1, keepdims=True)
-    dirs_unit = np.where(norms == 0, 0, dirs / norms)
+    unit = dirs / (norms + 1e-8)
+
     max_dist = max(distances)
-    radius_scale = 70 / max_dist            # 70 px для макс. дистанции
-    new_anchors_xy = obj_xy + dirs_unit * (np.array(distances)[:, None] * radius_scale)
+    radius_scale = 70 / max_dist
+    full_lengths = np.array(distances) * radius_scale
 
-    norm = plt.Normalize(min(distances), max(distances))
-    cmap = cm.get_cmap('coolwarm')
-    colors = cmap(norm(distances))
+    offset = 12.0
 
-    fig, ax = plt.subplots()
-    for (x, y), d, color in zip(new_anchors_xy, distances, colors):
-        ax.scatter(x, y, s=80, color=color, edgecolor='k')
-    for i, (x, y) in enumerate(new_anchors_xy):
-        ax.text(x, y-4, CLASSES[i], fontsize=9, ha='center', va='top', fontweight='bold')
+    new_xy = np.stack([
+        obj_xy + u * max(l - offset, 0)
+        for u, l in zip(unit, full_lengths)
+    ], axis=0)
 
-    ax.scatter(obj_xy[0], obj_xy[1], marker='x', s=140, c='black', label='Object')
-    circ = plt.Circle(obj_xy, radius_scale * max_dist, color='grey',
-                      linestyle='--', fill=False, alpha=0.3)
-    ax.add_patch(circ)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    for (end_x, end_y), lab in zip(new_xy, CLASSES):
+        col = FIXED_COLORS.get(lab, "#888888")
+        ax.plot([obj_xy[0], end_x], [obj_xy[1], end_y],
+                color=col, linewidth=2, alpha=0.8)
+    for (x, y), lab in zip(new_xy, CLASSES):
+        col = FIXED_COLORS.get(lab, "#888888")
+        ax.scatter(x, y + 1.5,
+                   s=700,
+                   facecolor='white',
+                   edgecolor='none',
+                   zorder=3)
+        ax.text(x, y, EMOJI[lab],
+                fontsize=32, ha='center', va='center',
+                color=col, zorder=4)
+
+    for dir_vec, l, lab in zip(unit, distances, CLASSES):
+        midpoint = obj_xy + dir_vec * ((l * radius_scale - offset) / 2.0)
+        col = FIXED_COLORS.get(lab, "#888888")
+        ax.text(midpoint[0], midpoint[1], f"{l:.2f}",
+                fontsize=8, color=col,
+                ha='center', va='center', zorder=5,
+                bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.7)
+                )
+
+    ax.scatter(obj_xy[0], obj_xy[1],
+               marker='x', s=280, c='black', zorder=6)
+
+    circle = plt.Circle(obj_xy, radius_scale * max_dist,
+                        linestyle='--', color='grey',
+                        fill=False, alpha=0.4, linewidth=1.5)
+    ax.add_patch(circle)
+
     ax.axis('off')
-
-    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, orientation='horizontal', pad=0.05, fraction=0.05)
-    cbar.set_ticks([min(distances), max(distances)])
-    cbar.set_ticklabels([f'{min(distances):.2f}', f'{max(distances):.2f}'])
-    cbar.set_label('Cosine distance')
-
+    fig.tight_layout()
     return fig
 
 
@@ -182,39 +280,73 @@ PRESETS = {
 }
 
 # UI
+left_top, right_top = st.columns([1.2, 1.8])
+with left_top:
+    col_ic, col_txt, col_ck = st.columns([0.11, 0.74, 0.15])
+    with col_txt:
+        preset = st.selectbox("Demo Preset", list(PRESETS.keys()))
 
-st.title("Emotion-anchor demo")
-left, right = st.columns([1.9, 1.1])    
+left, right = st.columns([1.2, 1.8])
+field_labels = {modal: name for modal, name in zip(["TEXT"] + MODAL_NAMES, ["TEXT", "VISUAL", "AUDIO", "BIO", "AUS"])}
 
 with left:
-    preset = st.selectbox("Demo Preset", list(PRESETS.keys()))
     default_text, default_vis, default_aud, default_bio, default_aus, gt_label = PRESETS[preset]
-
-    text = st.text_area(
-        "Utterance text:",
-        value=default_text,
-        height=100,
-        placeholder="Type your utterance here..."
-    )
 
     modal_inputs = []
     default_vals = [default_vis, default_aud, default_bio, default_aus]
-    for name, default_val in zip(MODAL_NAMES, default_vals):
-        active = st.checkbox(name, value=bool(default_val), key=f"{name}_active")
-        val = st.text_area(                         # text_area → перенос строк, помещается весь текст
-            f"{name} value",
-            value=default_val,
-            height=70,
-            key=name,
-            placeholder=f"Enter {name.lower()}..."
-        )
-        modal_inputs.append(val if active and val.strip() else None)
+    rows = [("TEXT", default_text)] + list(zip(MODAL_NAMES, default_vals))
 
-    run_clicked = st.button("Run")
-    
+    for label, default_val in rows:
+        col_ic, col_txt, col_ck = st.columns([0.11, 0.74, 0.15])
+
+        if label == "TEXT":
+            active = True
+        else:
+            with col_ck:
+                active = st.checkbox(
+                    "", value=bool(default_val), key=f"{label}_active",
+                    label_visibility="collapsed"
+                )
+
+        row_cls = "" if active else "disabled-row"
+
+        with col_ic:
+            st.markdown(
+                f"""
+                <div class="{row_cls}">
+                  <br /><br />
+                  <img class="icon-img" src="data:image/png;base64,{ICON64[label]}" width="40">
+                  <div class="icon-label" style='font-size:20px;'>{field_labels[label]}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with col_txt:
+            entry = st.text_area(
+                "", value=default_val if label != "TEXT" else default_text,
+                key=f"{label}_txt", height=90,
+                placeholder=f"Enter {label.lower()} here...",
+                disabled=not active
+            )
+            if label == "TEXT":
+                text = entry  # обновляем utterance
+            else:
+                modal_inputs.append(entry if active and entry.strip() else None)
+
+        if not active and label != "TEXT":
+            st.markdown(
+                f"<style>#{col_ck._form_script_id} input{{filter:grayscale(100%);opacity:.35;}}</style>",
+                unsafe_allow_html=True
+            )
+
+    col_ic, col_txt, col_ck = st.columns([0.11, 0.74, 0.15])
+    with col_txt:
+        run_clicked = st.button("RUN")
+
 if run_clicked:
     if not text.strip():
-        left.warning("Please enter the utterance text.")   # выводим в той же колонке
+        left.warning("Please enter the utterance text.")
         st.stop()
 
     with st.spinner("Calculating…"):
@@ -222,21 +354,67 @@ if run_clicked:
             [text] + modal_inputs, args
         )
 
-    fig_tsne = tsne_figure(obj_vec, anchor_vecs, distances)
-    
     best_idx = int(np.argmin(distances))
-    pred_label  = CLASSES[best_idx]
-    pred_emoji  = EMOJI[pred_label]
-    gt_emoji    = EMOJI.get(gt_label, "❓") if gt_label else "—"
+    pred_label = CLASSES[best_idx]
 
-    right.markdown(
-        f"<div style='text-align:right; font-size:56px;'>"
-        f"GROUND&nbsp;TRUTH {gt_emoji}<br>"
-        f"PREDICTION&nbsp;{pred_emoji}"
-        f"</div>",
-        unsafe_allow_html=True
-    )
+    fig_tsne = tsne_figure(obj_vec, anchor_vecs, distances, pred_label)
 
-    right.pyplot(fig_tsne)                
+    name_map = {
+        "neu": "Neutral",
+        "exc": "Excited",
+        "fru": "Frustrated",
+        "sad": "Sad",
+        "hap": "Happy",
+        "ang": "Angry",
+    }
+
+    gt_name = name_map.get(gt_label, "-")
+    pred_name = name_map[pred_label]
+
+    gt_html = emoji_png(gt_label) if gt_label else "-"
+    pred_html = emoji_png(pred_label)
+
+    right.markdown("<div style='height:100px'></div>", unsafe_allow_html=True)
+
+    graph_col, info_col = right.columns([1.2, 0.6])
+
+    info_col.markdown("<div style='height:200px'></div>", unsafe_allow_html=True)
+
+    graph_col.pyplot(fig_tsne)
+
+    with info_col:
+        name = {
+            "neu": "Neutral", "exc": "Excited", "fru": "Frustrated",
+            "sad": "Sad", "hap": "Happy", "ang": "Angry",
+        }
+
+        gt_name = name.get(gt_label, "-")
+        pred_name = name[pred_label]
+
+        gt_html = emoji_png(gt_label) if gt_label else "-"
+        pred_html = emoji_png(pred_label)
+
+        info_col.markdown(
+            f"""
+            <div style="display:flex;flex-direction:column;gap:24px;
+                        font-size:24px;line-height:24px;">
+
+              <div style="display:flex;align-items:center;gap:14px;">
+                {gt_html}
+                <div>
+                  <b>Ground&nbsp;Truth</b><br>{gt_name}
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;">
+                {pred_html}
+                <div>
+                  <b>Prediction</b><br>{pred_name}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 else:
-    right.info("Submit data and press **Run**.")           # сообщение тоже справа
+    with right_top:
+        st.info("Submit data and press Run.")
