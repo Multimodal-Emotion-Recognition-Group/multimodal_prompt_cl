@@ -2,7 +2,7 @@
 
 Identifying the emotional state of each statement in a conversation, known as Emotion Recognition in Conversations (ERC), is essential for developing empathetic systems. The field of ERC has witnessed substantial progress with the development of context-sensitive prompting techniques, such as Emotion-Anchored Contrastive Learning (EACL). The main problem is that existing approaches rely mainly on textual information without considering audio and visual cues. To address this limitation, we propose Multimodal Adaptive Emotion Anchoring (MAEA), an extension of EACL that incorporates multimodal signals and a dynamic anchor separation strategy. Our approach enhances emotion representation learning by integrating visual and acoustic features while refining anchor separation based on conversational contexts. By dynamically adapting anchor positions depending on conversational shifts and emotional transitions, MAEA enables more robust emotion modeling. Our experiments demonstrate that MAEA can improve unimodal setups and produce superior results on benchmark ERC datasets.
 
-Preview video link: https://drive.google.com/file/d/1hRlLbL4EiVOZY26aoFEymrF4vf9tR3Tv/view?usp=drive_link
+Preview video [link]([demo_video.mp4](https://drive.google.com/file/d/1hRlLbL4EiVOZY26aoFEymrF4vf9tR3Tv/view?usp=drive_link))link
 
 Demo video
 [link](demo_video.mp4)
